@@ -1,7 +1,7 @@
 
 #include <esp_types.h>
 #include <stdio.h>
-#include "rom/ets_sys.h"
+#include "esp32/rom/ets_sys.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -12,6 +12,7 @@
 #include "soc/uart_reg.h"
 #include "soc/dport_reg.h"
 #include "soc/io_mux_reg.h"
+#include "driver/gpio.h"
 
 
 /*

@@ -1,4 +1,4 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
+// Copyright 2015-2019 Espressif Systems (Shanghai) PTE LTD
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/termios.h>
+#include <sys/poll.h>
 #include <dirent.h>
 #include <string.h>
 #include "sdkconfig.h"
@@ -64,6 +65,16 @@ extern "C" {
  * @brief VFS identificator used for esp_vfs_register_with_id()
  */
 typedef int esp_vfs_id_t;
+
+/**
+ * @brief VFS semaphore type for select()
+ *
+ */
+typedef struct
+{
+    bool is_sem_local;      /*!< type of "sem" is SemaphoreHandle_t when true, defined by socket driver otherwise */
+    void *sem;              /*!< semaphore instance */
+} esp_vfs_select_sem_t;
 
 /**
  * @brief VFS definition structure
@@ -162,8 +173,8 @@ typedef struct
         int (*rmdir)(const char* name);
     };
     union {
-        int (*fcntl_p)(void* ctx, int fd, int cmd, va_list args);
-        int (*fcntl)(int fd, int cmd, va_list args);
+        int (*fcntl_p)(void* ctx, int fd, int cmd, int arg);
+        int (*fcntl)(int fd, int cmd, int arg);
     };
     union {
         int (*ioctl_p)(void* ctx, int fd, int cmd, va_list args);
@@ -217,14 +228,16 @@ typedef struct
 #endif // CONFIG_SUPPORT_TERMIOS
 
     /** start_select is called for setting up synchronous I/O multiplexing of the desired file descriptors in the given VFS */
-    esp_err_t (*start_select)(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, SemaphoreHandle_t *signal_sem);
+    esp_err_t (*start_select)(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, esp_vfs_select_sem_t sem);
     /** socket select function for socket FDs with the functionality of POSIX select(); this should be set only for the socket VFS */
     int (*socket_select)(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, struct timeval *timeout);
     /** called by VFS to interrupt the socket_select call when select is activated from a non-socket VFS driver; set only for the socket driver */
-    void (*stop_socket_select)();
+    void (*stop_socket_select)(void *sem);
     /** stop_socket_select which can be called from ISR; set only for the socket driver */
-    void (*stop_socket_select_isr)(BaseType_t *woken);
+    void (*stop_socket_select_isr)(void *sem, BaseType_t *woken);
     /** end_select is called to stop the I/O multiplexing and deinitialize the environment created by start_select for the given VFS */
+    void* (*get_socket_select_semaphore)();
+    /** get_socket_select_semaphore returns semaphore allocated in the socket driver; set only for the socket driver */
     void (*end_select)();
 } esp_vfs_t;
 
@@ -370,9 +383,9 @@ int esp_vfs_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds
  * This function is called when the VFS driver detects a read/write/error
  * condition as it was requested by the previous call to start_select.
  *
- * @param signal_sem semaphore handle which was passed to the driver by the start_select call
+ * @param sem semaphore structure which was passed to the driver by the start_select call
  */
-void esp_vfs_select_triggered(SemaphoreHandle_t *signal_sem);
+void esp_vfs_select_triggered(esp_vfs_select_sem_t sem);
 
 /**
  * @brief Notification from a VFS driver about a read/write/error condition (ISR version)
@@ -380,10 +393,26 @@ void esp_vfs_select_triggered(SemaphoreHandle_t *signal_sem);
  * This function is called when the VFS driver detects a read/write/error
  * condition as it was requested by the previous call to start_select.
  *
- * @param signal_sem semaphore handle which was passed to the driver by the start_select call
+ * @param sem semaphore structure which was passed to the driver by the start_select call
  * @param woken is set to pdTRUE if the function wakes up a task with higher priority
  */
-void esp_vfs_select_triggered_isr(SemaphoreHandle_t *signal_sem, BaseType_t *woken);
+void esp_vfs_select_triggered_isr(esp_vfs_select_sem_t sem, BaseType_t *woken);
+
+/**
+ * @brief Implements the VFS layer for synchronous I/O multiplexing by poll()
+ *
+ * The implementation is based on esp_vfs_select. The parameters and return values are compatible with POSIX poll().
+ *
+ * @param fds         Pointer to the array containing file descriptors and events poll() should consider.
+ * @param nfds        Number of items in the array fds.
+ * @param timeout     Poll() should wait at least timeout milliseconds. If the value is 0 then it should return
+ *                    immediately. If the value is -1 then it should wait (block) until the event occurs.
+ *
+ * @return            A positive return value indicates the number of file descriptors that have been selected. The 0
+ *                    return value indicates a timed-out poll. -1 is return on failure and errno is set accordingly.
+ *
+ */
+int esp_vfs_poll(struct pollfd *fds, nfds_t nfds, int timeout);
 
 #ifdef __cplusplus
 } // extern "C"

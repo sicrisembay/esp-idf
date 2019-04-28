@@ -66,7 +66,7 @@ def test_examples_protocol_http_server_advanced(env, extra_data):
 
     # Parse IP address of STA
     Utility.console_log("Waiting to connect with AP")
-    got_ip = dut1.expect(re.compile(r"(?:[\s\S]*)Got IP: '(\d+.\d+.\d+.\d+)'"), timeout=30)[0]
+    got_ip = dut1.expect(re.compile(r"(?:[\s\S]*)IPv4 address: (\d+.\d+.\d+.\d+)"), timeout=30)[0]
 
     got_port = dut1.expect(re.compile(r"(?:[\s\S]*)Started HTTP server on port: '(\d+)'"), timeout=15)[0]
     result = dut1.expect(re.compile(r"(?:[\s\S]*)Max URI handlers: '(\d+)'(?:[\s\S]*)Max Open Sessions: "  # noqa: W605
@@ -95,6 +95,8 @@ def test_examples_protocol_http_server_advanced(env, extra_data):
     if not client.async_response_test(got_ip, got_port):
         failed = True
     if not client.recv_timeout_test(got_ip, got_port):
+        failed = True
+    if not client.arbitrary_termination_test(got_ip, got_port):
         failed = True
 
     # This test fails a lot! Enable when connection is stable

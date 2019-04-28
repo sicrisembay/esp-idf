@@ -18,10 +18,10 @@
 #include "esp_attr.h"
 #include "esp_err.h"
 
-#include "rom/ets_sys.h"
-#include "rom/uart.h"
-#include "rom/rtc.h"
-#include "rom/cache.h"
+#include "esp32/rom/ets_sys.h"
+#include "esp32/rom/uart.h"
+#include "esp32/rom/rtc.h"
+#include "esp32/rom/cache.h"
 
 #include "soc/cpu.h"
 #include "soc/rtc.h"
@@ -48,28 +48,28 @@
 #include "esp_event.h"
 #include "esp_spi_flash.h"
 #include "esp_ipc.h"
-#include "esp_crosscore_int.h"
-#include "esp_dport_access.h"
+#include "esp32/dport_access.h"
+#include "esp_private/crosscore_int.h"
 #include "esp_log.h"
 #include "esp_vfs_dev.h"
 #include "esp_newlib.h"
-#include "esp_brownout.h"
+#include "esp32/brownout.h"
 #include "esp_int_wdt.h"
 #include "esp_task.h"
 #include "esp_task_wdt.h"
 #include "esp_phy_init.h"
-#include "esp_cache_err_int.h"
-#include "esp_coexist.h"
-#include "esp_panic.h"
+#include "esp32/cache_err_int.h"
+#include "esp_coexist_internal.h"
+#include "esp_debug_helpers.h"
 #include "esp_core_dump.h"
 #include "esp_app_trace.h"
-#include "esp_dbg_stubs.h"
+#include "esp_private/dbg_stubs.h"
 #include "esp_efuse.h"
-#include "esp_spiram.h"
+#include "esp32/spiram.h"
 #include "esp_clk_internal.h"
 #include "esp_timer.h"
 #include "esp_pm.h"
-#include "pm_impl.h"
+#include "esp_private/pm_impl.h"
 #include "trax.h"
 #include "esp_ota_ops.h"
 
@@ -186,12 +186,14 @@ void IRAM_ATTR call_start_cpu0()
         ESP_EARLY_LOGI(TAG, "App version:      %s", app_desc->version);
 #endif
 #ifdef CONFIG_APP_SECURE_VERSION
-        ESP_EARLY_LOGI(TAG, "Secure version:   %x", app_desc->secure_version);
+        ESP_EARLY_LOGI(TAG, "Secure version:   %d", app_desc->secure_version);
 #endif
 #ifdef CONFIG_APP_COMPILE_TIME_DATE
-        ESP_EARLY_LOGI(TAG, "Compile time:     %s", app_desc->time);
-        ESP_EARLY_LOGI(TAG, "Compile date:     %s", app_desc->date);
+        ESP_EARLY_LOGI(TAG, "Compile time:     %s %s", app_desc->date, app_desc->time);
 #endif
+        char buf[17];
+        esp_ota_get_app_elf_sha256(buf, sizeof(buf));
+        ESP_EARLY_LOGI(TAG, "ELF file SHA256:  %s...", buf);
         ESP_EARLY_LOGI(TAG, "ESP-IDF:          %s", app_desc->idf_ver);
     }
 
@@ -391,11 +393,10 @@ void start_cpu0_default(void)
 #ifdef CONFIG_PM_ENABLE
     esp_pm_impl_init();
 #ifdef CONFIG_PM_DFS_INIT_AUTO
-    rtc_cpu_freq_t max_freq;
-    rtc_clk_cpu_freq_from_mhz(CONFIG_ESP32_DEFAULT_CPU_FREQ_MHZ, &max_freq);
+    int xtal_freq = (int) rtc_clk_xtal_freq_get();
     esp_pm_config_esp32_t cfg = {
-            .max_cpu_freq = max_freq,
-            .min_cpu_freq = RTC_CPU_FREQ_XTAL
+        .max_freq_mhz = CONFIG_ESP32_DEFAULT_CPU_FREQ_MHZ,
+        .min_freq_mhz = xtal_freq,
     };
     esp_pm_configure(&cfg);
 #endif //CONFIG_PM_DFS_INIT_AUTO
@@ -408,6 +409,10 @@ void start_cpu0_default(void)
     if (esp_core_dump_image_get(&core_data_addr, &core_data_sz) == ESP_OK && core_data_sz > 0) {
         ESP_LOGI(TAG, "Found core dump %d bytes in flash @ 0x%x", core_data_sz, core_data_addr);
     }
+#endif
+
+#if CONFIG_SW_COEXIST_ENABLE
+    esp_coex_adapter_register(&g_coex_adapter_funcs);
 #endif
 
     portBASE_TYPE res = xTaskCreatePinnedToCore(&main_task, "main",
@@ -514,6 +519,12 @@ static void main_task(void* args)
     // Now that the application is about to start, disable boot watchdog
 #ifndef CONFIG_BOOTLOADER_WDT_DISABLE_IN_USER_CODE
     rtc_wdt_disable();
+#endif
+#ifdef CONFIG_EFUSE_SECURE_VERSION_EMULATE
+    const esp_partition_t *efuse_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_EFUSE_EM, NULL);
+    if (efuse_partition) {
+        esp_efuse_init(efuse_partition->address, efuse_partition->size);
+    }
 #endif
     app_main();
     vTaskDelete(NULL);

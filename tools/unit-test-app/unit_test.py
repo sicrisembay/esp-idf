@@ -278,22 +278,26 @@ def run_unit_test_cases(env, extra_data):
 
     for ut_config in case_config:
         Utility.console_log("Running unit test for config: " + ut_config, "O")
-        dut = env.get_dut("unit-test-app", app_path=ut_config)
+        dut = env.get_dut("unit-test-app", app_path=ut_config, allow_dut_exception=True)
         if len(case_config[ut_config]) > 0:
             replace_app_bin(dut, "unit-test-app", case_config[ut_config][0].get('app_bin'))
         dut.start_app()
         Utility.console_log("Download finished, start running test cases", "O")
 
         for one_case in case_config[ut_config]:
+            performance_items = []
             # create junit report test case
             junit_test_case = TinyFW.JunitReport.create_test_case("[{}] {}".format(ut_config, one_case["name"]))
             try:
                 run_one_normal_case(dut, one_case, junit_test_case)
+                performance_items = dut.get_performance_items()
             except TestCaseFailed:
                 failed_cases.append(one_case["name"])
             except Exception as e:
                 junit_test_case.add_failure_info("Unexpected exception: " + str(e))
+                failed_cases.append(one_case["name"])
             finally:
+                TinyFW.JunitReport.update_performance(performance_items)
                 TinyFW.JunitReport.test_case_finish(junit_test_case)
 
     # raise exception if any case fails
@@ -413,14 +417,14 @@ def get_dut(duts, env, name, ut_config, app_bin=None):
     if name in duts:
         dut = duts[name]
     else:
-        dut = env.get_dut(name, app_path=ut_config)
+        dut = env.get_dut(name, app_path=ut_config, allow_dut_exception=True)
         duts[name] = dut
         replace_app_bin(dut, "unit-test-app", app_bin)
         dut.start_app()  # download bin to board
     return dut
 
 
-def run_one_multiple_devices_case(duts, ut_config, env, one_case, failed_cases, app_bin, junit_test_case):
+def run_one_multiple_devices_case(duts, ut_config, env, one_case, app_bin, junit_test_case):
     lock = threading.RLock()
     threads = []
     send_signal_list = []
@@ -442,12 +446,16 @@ def run_one_multiple_devices_case(duts, ut_config, env, one_case, failed_cases, 
         if not thread.result:
             [thd.stop() for thd in threads]
 
-    if result:
-        Utility.console_log("Success: " + one_case["name"], color="green")
-    else:
-        failed_cases.append(one_case["name"])
+    if not result:
         junit_test_case.add_failure_info(output)
-        Utility.console_log("Failed: " + one_case["name"], color="red")
+
+    # collect performances from DUTs
+    performance_items = []
+    for dut_name in duts:
+        performance_items.extend(duts[dut_name].get_performance_items())
+    TinyFW.JunitReport.update_performance(performance_items)
+
+    return result
 
 
 @IDF.idf_unit_test(env_tag="UT_T2_1", junit_report_by_case=True)
@@ -478,13 +486,19 @@ def run_multiple_devices_cases(env, extra_data):
     for ut_config in case_config:
         Utility.console_log("Running unit test for config: " + ut_config, "O")
         for one_case in case_config[ut_config]:
+            result = False
             junit_test_case = TinyFW.JunitReport.create_test_case("[{}] {}".format(ut_config, one_case["name"]))
             try:
-                run_one_multiple_devices_case(duts, ut_config, env, one_case, failed_cases,
-                                              one_case.get('app_bin'), junit_test_case)
+                result = run_one_multiple_devices_case(duts, ut_config, env, one_case,
+                                                       one_case.get('app_bin'), junit_test_case)
             except Exception as e:
                 junit_test_case.add_failure_info("Unexpected exception: " + str(e))
             finally:
+                if result:
+                    Utility.console_log("Success: " + one_case["name"], color="green")
+                else:
+                    failed_cases.append(one_case["name"])
+                    Utility.console_log("Failed: " + one_case["name"], color="red")
                 TinyFW.JunitReport.test_case_finish(junit_test_case)
 
     if failed_cases:
@@ -618,20 +632,24 @@ def run_multiple_stage_cases(env, extra_data):
 
     for ut_config in case_config:
         Utility.console_log("Running unit test for config: " + ut_config, "O")
-        dut = env.get_dut("unit-test-app", app_path=ut_config)
+        dut = env.get_dut("unit-test-app", app_path=ut_config, allow_dut_exception=True)
         if len(case_config[ut_config]) > 0:
             replace_app_bin(dut, "unit-test-app", case_config[ut_config][0].get('app_bin'))
         dut.start_app()
 
         for one_case in case_config[ut_config]:
+            performance_items = []
             junit_test_case = TinyFW.JunitReport.create_test_case("[{}] {}".format(ut_config, one_case["name"]))
             try:
                 run_one_multiple_stage_case(dut, one_case, junit_test_case)
+                performance_items = dut.get_performance_items()
             except TestCaseFailed:
                 failed_cases.append(one_case["name"])
             except Exception as e:
                 junit_test_case.add_failure_info("Unexpected exception: " + str(e))
+                failed_cases.append(one_case["name"])
             finally:
+                TinyFW.JunitReport.update_performance(performance_items)
                 TinyFW.JunitReport.test_case_finish(junit_test_case)
 
     # raise exception if any case fails

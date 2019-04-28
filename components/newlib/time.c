@@ -22,16 +22,16 @@
 #include <sys/time.h>
 #include <sys/times.h>
 #include <sys/lock.h>
-#include <rom/rtc.h>
+#include <esp32/rom/rtc.h>
 #include "esp_attr.h"
 #include "esp_intr_alloc.h"
-#include "esp_clk.h"
+#include "esp32/clk.h"
 #include "esp_timer.h"
 #include "soc/soc.h"
 #include "soc/rtc.h"
 #include "soc/rtc_cntl_reg.h"
 #include "soc/frc_timer_reg.h"
-#include "rom/ets_sys.h"
+#include "esp32/rom/ets_sys.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/xtensa_api.h"
 #include "freertos/task.h"
@@ -132,7 +132,7 @@ static uint64_t adjust_boot_time()
         // and the correction will be equal to (1_000_000us >> 6) = 15_625 us.
         // The minimum possible correction step can be (64us >> 6) = 1us.
         // Example: if the time error is 1 second, then it will be compensate for 1 sec / 0,015625 = 64 seconds.
-        int64_t correction = (since_boot - adjtime_start) >> ADJTIME_CORRECTION_FACTOR;
+        int64_t correction = (since_boot >> ADJTIME_CORRECTION_FACTOR) - (adjtime_start >> ADJTIME_CORRECTION_FACTOR);
         if (correction > 0) {
             adjtime_start = since_boot;
             if (adjtime_total_correction < 0) {

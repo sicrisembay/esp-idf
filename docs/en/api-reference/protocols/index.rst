@@ -1,5 +1,6 @@
 Application Protocols
 *********************
+:link_to_translation:`zh_CN:[中文]`
 
 .. toctree::
    :maxdepth: 1
@@ -11,7 +12,7 @@ Application Protocols
    HTTPS Server <esp_https_server>
    ASIO <asio>
    ESP-MQTT <mqtt>
-   Modbus slave <modbus>
+   Modbus <modbus>
 
 Example code for this API section is provided in :example:`protocols` directory of ESP-IDF examples.
 

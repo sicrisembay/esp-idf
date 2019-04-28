@@ -297,6 +297,26 @@ esp_err_t esp_http_client_delete_header(esp_http_client_handle_t client, const c
     return http_header_delete(client->request->headers, key);
 }
 
+esp_err_t esp_http_client_get_username(esp_http_client_handle_t client, char **value)
+{
+    if (client == NULL || value == NULL) {
+        ESP_LOGE(TAG, "client or value must not be NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+    *value = client->connection_info.username;
+    return ESP_OK;
+}
+
+esp_err_t esp_http_client_get_password(esp_http_client_handle_t client, char **value)
+{
+    if (client == NULL || value == NULL) {
+        ESP_LOGE(TAG, "client or value must not be NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+    *value = client->connection_info.password;
+    return ESP_OK;
+}
+
 static esp_err_t _set_config(esp_http_client_handle_t client, const esp_http_client_config_t *config)
 {
     client->connection_info.method = config->method;
@@ -487,7 +507,9 @@ esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *co
         goto error;
     }
 
-    if (config->cert_pem) {
+    if (config->use_global_ca_store == true) {
+        esp_transport_ssl_enable_global_ca_store(ssl);
+    } else if (config->cert_pem) {
         esp_transport_ssl_set_cert_data(ssl, config->cert_pem, strlen(config->cert_pem));
     }
 
@@ -587,6 +609,17 @@ esp_err_t esp_http_client_cleanup(esp_http_client_handle_t client)
     return ESP_OK;
 }
 
+esp_err_t esp_http_client_set_redirection(esp_http_client_handle_t client)
+{
+    if (client == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (client->location == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return esp_http_client_set_url(client, client->location);
+}
+
 static esp_err_t esp_http_check_response(esp_http_client_handle_t client)
 {
     char *auth_header = NULL;
@@ -659,10 +692,15 @@ esp_err_t esp_http_client_set_url(esp_http_client_handle_t client, const char *u
         ESP_LOGE(TAG, "Error parse url %s", url);
         return ESP_ERR_INVALID_ARG;
     }
-    old_host = client->connection_info.host;
+    if (client->connection_info.host) {
+        old_host = strdup(client->connection_info.host);
+    }
     old_port = client->connection_info.port;
 
-    if (purl.field_data[UF_HOST].len) {
+    // Whether the passed url is absolute or is just a path
+    bool is_absolute_url = (bool) purl.field_data[UF_HOST].len;
+
+    if (is_absolute_url) {
         http_utils_assign_string(&client->connection_info.host, url + purl.field_data[UF_HOST].off, purl.field_data[UF_HOST].len);
         HTTP_MEM_CHECK(TAG, client->connection_info.host, return ESP_ERR_NO_MEM);
     }
@@ -671,9 +709,15 @@ esp_err_t esp_http_client_set_url(esp_http_client_handle_t client, const char *u
             && strcasecmp(old_host, (const void *)client->connection_info.host) != 0) {
         ESP_LOGD(TAG, "New host assign = %s", client->connection_info.host);
         if (esp_http_client_set_header(client, "Host", client->connection_info.host) != ESP_OK) {
+            free(old_host);
             return ESP_ERR_NO_MEM;
         }
         esp_http_client_close(client);
+    }
+
+    if (old_host) {
+        free(old_host);
+        old_host = NULL;
     }
 
     if (purl.field_data[UF_SCHEMA].len) {
@@ -713,7 +757,8 @@ esp_err_t esp_http_client_set_url(esp_http_client_handle_t client, const char *u
         } else {
             return ESP_ERR_NO_MEM;
         }
-    } else {
+    } else if (is_absolute_url) {
+        // Only reset authentication info if the passed URL is full
         free(client->connection_info.username);
         free(client->connection_info.password);
         client->connection_info.username = NULL;
@@ -1074,6 +1119,7 @@ static esp_err_t esp_http_client_request_send(esp_http_client_handle_t client, i
 
     client->data_written_index = 0;
     client->data_write_left = client->post_len;
+    http_dispatch_event(client, HTTP_EVENT_HEADER_SENT, NULL, 0);
     client->state = HTTP_STATE_REQ_COMPLETE_HEADER;
     return ESP_OK;
 }
@@ -1114,7 +1160,7 @@ esp_err_t esp_http_client_open(esp_http_client_handle_t client, int write_len)
         return err;
     }
     if ((err = esp_http_client_request_send(client, write_len)) != ESP_OK) {
-        return err; 
+        return err;
     }
     return ESP_OK;
 }

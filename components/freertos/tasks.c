@@ -76,9 +76,9 @@ all the API functions to use the MPU wrappers.  That should only be done when
 task.h is included from an application file. */
 #define MPU_WRAPPERS_INCLUDED_FROM_API_FILE
 
-#include "rom/ets_sys.h"
+#include "esp32/rom/ets_sys.h"
 #include "esp_newlib.h"
-#include "esp_panic.h"
+#include "esp_debug_helpers.h"
 
 /* FreeRTOS includes. */
 #include "FreeRTOS.h"
@@ -86,6 +86,7 @@ task.h is included from an application file. */
 #include "timers.h"
 #include "StackMacros.h"
 #include "portmacro.h"
+#include "portmacro_priv.h"
 #include "semphr.h"
 
 /* Lint e961 and e750 are suppressed as a MISRA exception justified because the

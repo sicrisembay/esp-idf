@@ -60,14 +60,12 @@ menu Bluetooth
 
         config BTDM_CONTROLLER_BR_EDR_MAX_ACL_CONN_EFF
             int
-            default \
-                BTDM_CONTROLLER_BR_EDR_MAX_ACL_CONN if BTDM_CONTROLLER_MODE_BR_EDR_ONLY || BTDM_CONTROLLER_MODE_BTDM
+            default BTDM_CONTROLLER_BR_EDR_MAX_ACL_CONN if BTDM_CONTROLLER_MODE_BR_EDR_ONLY || BTDM_CONTROLLER_MODE_BTDM  # NOERROR
             default 0
 
         config BTDM_CONTROLLER_BR_EDR_MAX_SYNC_CONN_EFF
             int
-            default \
-                BTDM_CONTROLLER_BR_EDR_MAX_SYNC_CONN if BTDM_CONTROLLER_MODE_BR_EDR_ONLY || BTDM_CONTROLLER_MODE_BTDM
+            default BTDM_CONTROLLER_BR_EDR_MAX_SYNC_CONN if BTDM_CONTROLLER_MODE_BR_EDR_ONLY || BTDM_CONTROLLER_MODE_BTDM  # NOERROR
             default 0
 
         choice BTDM_CONTROLLER_PINNED_TO_CORE_CHOICE
@@ -260,6 +258,40 @@ menu Bluetooth
                 The full scan function is mainly used to provide BLE scan performance.
                 This is required for scenes with high scan performance requirements, such as BLE Mesh scenes.
 
+        config BLE_ADV_REPORT_FLOW_CONTROL_SUPPORTED
+            bool "BLE adv report flow control supported"
+            depends on (BTDM_CONTROLLER_MODE_BTDM || BTDM_CONTROLLER_MODE_BLE_ONLY)
+            default y
+            help
+                The function is mainly used to enable flow control for advertising reports. When it is enabled,
+                advertising reports will be discarded by the controller if the number of unprocessed advertising
+                reports exceeds the size of BLE adv report flow control.
+
+        config BLE_ADV_REPORT_FLOW_CONTROL_NUM
+            int "BLE adv report flow control number"
+            depends on BLE_ADV_REPORT_FLOW_CONTROL_SUPPORTED
+            range 50 1000
+            default 100
+            help
+                The number of unprocessed advertising report that Bluedroid can save.If you set
+                `BLE_ADV_REPORT_FLOW_CONTROL_NUM` to a small value, this may cause adv packets lost.
+                If you set `BLE_ADV_REPORT_FLOW_CONTROL_NUM` to a large value, Bluedroid may cache a
+                lot of adv packets and this may cause system memory run out. For example, if you set
+                it to 50, the maximum memory consumed by host is 35 * 50 bytes. Please set
+                `BLE_ADV_REPORT_FLOW_CONTROL_NUM` according to your system free memory and handle adv
+                packets as fast as possible, otherwise it will cause adv packets lost.
+
+        config BLE_ADV_REPORT_DISCARD_THRSHOLD
+            int "BLE adv lost event threshold value"
+            depends on BLE_ADV_REPORT_FLOW_CONTROL_SUPPORTED
+            range 1 1000
+            default 20
+            help
+                When adv report flow control is enabled, The ADV lost event will be generated when the number
+                of ADV packets lost in the controller reaches this threshold. It is better to set a larger value.
+                If you set `BLE_ADV_REPORT_DISCARD_THRSHOLD` to a small value or printf every adv lost event, it
+                may cause adv packets lost more.
+
     endmenu
 
     menuconfig BLUEDROID_ENABLED
@@ -429,6 +461,13 @@ menu Bluetooth
         default y
         help
             This option can be close when the app not used the ble security connect.
+
+    config SMP_SLAVE_CON_PARAMS_UPD_ENABLE
+        bool "Slave enable connection parameters update during pairing"
+        depends on BLE_SMP_ENABLE
+        default n
+        help
+            In order to reduce the pairing time, slave actively initiates connection parameters update during pairing.
 
     config BT_STACK_NO_LOG
         bool "Disable BT debug logs (minimize bin size)"
@@ -1224,6 +1263,16 @@ menu Bluetooth
             Bluedroid will report adv data or scan response to application layer immediately.
 
             # Memory reserved at start of DRAM for Bluetooth stack
+
+    config BLE_ESTABLISH_LINK_CONNECTION_TIMEOUT
+        int "Timeout of BLE connection establishment"
+        depends on BLUEDROID_ENABLED
+        range 1 60
+        default 30
+        help
+            Bluetooth Connection establishment maximum time, if connection time exceeds this value, the connection
+            establishment fails, ESP_GATTC_OPEN_EVT or ESP_GATTS_OPEN_EVT is triggered.
+
     config BT_RESERVE_DRAM
         hex
         default 0xdb5c if BT_ENABLED

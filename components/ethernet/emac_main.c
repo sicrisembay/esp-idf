@@ -16,8 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "rom/ets_sys.h"
-#include "rom/gpio.h"
+#include "esp32/rom/ets_sys.h"
+#include "esp32/rom/gpio.h"
 #include "soc/dport_reg.h"
 #include "soc/io_mux_reg.h"
 #include "soc/rtc.h"
@@ -39,7 +39,7 @@
 #include "esp_eth.h"
 #include "esp_intr_alloc.h"
 #include "esp_pm.h"
-#include "esp_spiram.h"
+#include "esp32/spiram.h"
 
 #include "driver/periph_ctrl.h"
 
@@ -79,6 +79,7 @@ static bool pause_send = false;
 #ifdef CONFIG_PM_ENABLE
 static esp_pm_lock_handle_t s_pm_lock;
 #endif
+ESP_EVENT_DEFINE_BASE(ETH_EVENT);
 
 static esp_err_t emac_ioctl(emac_sig_t sig, emac_par_t par);
 esp_err_t emac_post(emac_sig_t sig, emac_par_t par);
@@ -1067,7 +1068,7 @@ esp_err_t IRAM_ATTR emac_post(emac_sig_t sig, emac_par_t par)
 
 esp_err_t esp_eth_init(eth_config_t *config)
 {
-    esp_event_set_default_eth_handlers();
+    tcpip_adapter_set_default_eth_handlers();
     return esp_eth_init_internal(config);
 }
 

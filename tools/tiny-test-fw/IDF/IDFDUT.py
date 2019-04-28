@@ -19,10 +19,19 @@ import sys
 import re
 import functools
 import tempfile
+import subprocess
+
+# python2 and python3 queue package name is different
+try:
+    import Queue as _queue
+except ImportError:
+    import queue as _queue
+
 
 from serial.tools import list_ports
 
 import DUT
+import Utility
 
 try:
     import esptool
@@ -36,6 +45,69 @@ except ImportError:  # cheat and use IDF's copy of esptool if available
 
 class IDFToolError(OSError):
     pass
+
+
+class IDFDUTException(RuntimeError):
+    pass
+
+
+class IDFRecvThread(DUT.RecvThread):
+
+    PERFORMANCE_PATTERN = re.compile(r"\[Performance]\[(\w+)]: ([^\r\n]+)\r?\n")
+    EXCEPTION_PATTERNS = [
+        re.compile(r"(Guru Meditation Error: Core\s+\d panic'ed \([\w].*?\))"),
+        re.compile(r"(abort\(\) was called at PC 0x[a-fA-F\d]{8} on core \d)"),
+        re.compile(r"(rst 0x\d+ \(TG\dWDT_SYS_RESET|TGWDT_CPU_RESET\))")
+    ]
+    BACKTRACE_PATTERN = re.compile(r"Backtrace:((\s(0x[0-9a-f]{8}):0x[0-9a-f]{8})+)")
+    BACKTRACE_ADDRESS_PATTERN = re.compile(r"(0x[0-9a-f]{8}):0x[0-9a-f]{8}")
+
+    def __init__(self, read, dut):
+        super(IDFRecvThread, self).__init__(read, dut)
+        self.exceptions = _queue.Queue()
+        self.performance_items = _queue.Queue()
+
+    def collect_performance(self, comp_data):
+        matches = self.PERFORMANCE_PATTERN.findall(comp_data)
+        for match in matches:
+            Utility.console_log("[Performance][{}]: {}".format(match[0], match[1]),
+                                color="orange")
+            self.performance_items.put((match[0], match[1]))
+
+    def detect_exception(self, comp_data):
+        for pattern in self.EXCEPTION_PATTERNS:
+            start = 0
+            while True:
+                match = pattern.search(comp_data, pos=start)
+                if match:
+                    start = match.end()
+                    self.exceptions.put(match.group(0))
+                    Utility.console_log("[Exception]: {}".format(match.group(0)), color="red")
+                else:
+                    break
+
+    def detect_backtrace(self, comp_data):
+        start = 0
+        while True:
+            match = self.BACKTRACE_PATTERN.search(comp_data, pos=start)
+            if match:
+                start = match.end()
+                Utility.console_log("[Backtrace]:{}".format(match.group(1)), color="red")
+                # translate backtrace
+                addresses = self.BACKTRACE_ADDRESS_PATTERN.findall(match.group(1))
+                translated_backtrace = ""
+                for addr in addresses:
+                    ret = self.dut.lookup_pc_address(addr)
+                    if ret:
+                        translated_backtrace += ret + "\n"
+                if translated_backtrace:
+                    Utility.console_log("Translated backtrace\n:" + translated_backtrace, color="yellow")
+                else:
+                    Utility.console_log("Failed to translate backtrace", color="yellow")
+            else:
+                break
+
+    CHECK_FUNCTIONS = [collect_performance, detect_exception, detect_backtrace]
 
 
 def _uses_esptool(func):
@@ -78,9 +150,14 @@ class IDFDUT(DUT.SerialDUT):
     INVALID_PORT_PATTERN = re.compile(r"AMA|Bluetooth")
     # if need to erase NVS partition in start app
     ERASE_NVS = True
+    RECV_THREAD_CLS = IDFRecvThread
+    TOOLCHAIN_PREFIX = "xtensa-esp32-elf-"
 
-    def __init__(self, name, port, log_file, app, **kwargs):
+    def __init__(self, name, port, log_file, app, allow_dut_exception=False, **kwargs):
         super(IDFDUT, self).__init__(name, port, log_file, app, **kwargs)
+        self.allow_dut_exception = allow_dut_exception
+        self.exceptions = _queue.Queue()
+        self.performance_items = _queue.Queue()
 
     @classmethod
     def get_mac(cls, app, port):
@@ -252,3 +329,63 @@ class IDFDUT(DUT.SerialDUT):
                 return [port_hint] + ports
 
         return ports
+
+    def lookup_pc_address(self, pc_addr):
+        cmd = ["%saddr2line" % self.TOOLCHAIN_PREFIX,
+               "-pfiaC", "-e", self.app.elf_file, pc_addr]
+        ret = ""
+        try:
+            translation = subprocess.check_output(cmd)
+            ret = translation.decode()
+        except OSError:
+            pass
+        return ret
+
+    @staticmethod
+    def _queue_read_all(source_queue):
+        output = []
+        while True:
+            try:
+                output.append(source_queue.get(timeout=0))
+            except _queue.Empty:
+                break
+        return output
+
+    def _queue_copy(self, source_queue, dest_queue):
+        data = self._queue_read_all(source_queue)
+        for d in data:
+            dest_queue.put(d)
+
+    def _get_from_queue(self, queue_name):
+        self_queue = getattr(self, queue_name)
+        if self.receive_thread:
+            recv_thread_queue = getattr(self.receive_thread, queue_name)
+            self._queue_copy(recv_thread_queue, self_queue)
+        return self._queue_read_all(self_queue)
+
+    def stop_receive(self):
+        if self.receive_thread:
+            for name in ["performance_items", "exceptions"]:
+                source_queue = getattr(self.receive_thread, name)
+                dest_queue = getattr(self, name)
+                self._queue_copy(source_queue, dest_queue)
+        super(IDFDUT, self).stop_receive()
+
+    def get_exceptions(self):
+        """ Get exceptions detected by DUT receive thread. """
+        return self._get_from_queue("exceptions")
+
+    def get_performance_items(self):
+        """
+        DUT receive thread will automatic collect performance results with pattern ``[Performance][name]: value\n``.
+        This method is used to get all performance results.
+
+        :return: a list of performance items.
+        """
+        return self._get_from_queue("performance_items")
+
+    def close(self):
+        super(IDFDUT, self).close()
+        if not self.allow_dut_exception and self.get_exceptions():
+            Utility.console_log("DUT exception detected on {}".format(self), color="red")
+            raise IDFDUTException()

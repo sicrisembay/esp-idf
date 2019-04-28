@@ -153,13 +153,13 @@ function run_tests()
     print_status "Touching rom ld file should re-link app and bootloader"
     make
     take_build_snapshot
-    touch ${IDF_PATH}/components/esp32/ld/esp32.rom.ld
+    touch ${IDF_PATH}/components/esp_rom/esp32/ld/esp32.rom.ld
     make
     assert_rebuilt ${APP_BINS} ${BOOTLOADER_BINS}
 
     print_status "Touching app-only template ld file should only re-link app"
     take_build_snapshot
-    touch ${IDF_PATH}/components/esp32/ld/esp32.common.ld.in
+    touch ${IDF_PATH}/components/esp32/ld/esp32.project.ld.in
     make
     assert_rebuilt ${APP_BINS}
     assert_not_rebuilt ${BOOTLOADER_BINS}
@@ -223,7 +223,7 @@ function run_tests()
     print_status "Can build without git installed on system"
     clean_build_dir
     # Make provision for getting IDF version
-    echo "custom-version-x.y" > ${IDF_PATH}/version.txt
+    echo "IDF_VER_0123456789_0123456789_0123456789" > ${IDF_PATH}/version.txt
     echo "project-version-w.z" > ${TESTDIR}/template/version.txt
     # Hide .gitmodules so that submodule check is avoided
     [ -f ${IDF_PATH}/.gitmodules ] && mv ${IDF_PATH}/.gitmodules ${IDF_PATH}/.gitmodules_backup
@@ -251,7 +251,7 @@ function run_tests()
 	make
     assert_rebuilt ${APP_BINS}
     assert_not_rebuilt ${BOOTLOADER_BINS} esp32/libesp32.a
-    
+
     print_status "Re-building does not change app.bin"
     take_build_snapshot
     make
@@ -263,7 +263,7 @@ function run_tests()
     version="App \"app-template\" version: "
     version+=$(git describe --always --tags --dirty)
     grep "${version}" log.log || failure "Project version should have a hash commit"
-    
+
     print_status "Build fails if partitions don't fit in flash"
     sed -i.bak "s/CONFIG_ESPTOOLPY_FLASHSIZE.\+//" sdkconfig  # remove all flashsize config
     echo "CONFIG_ESPTOOLPY_FLASHSIZE_1MB=y" >> sdkconfig     # introduce undersize flash
@@ -271,7 +271,7 @@ function run_tests()
     ( make 2>&1 | grep "does not fit in configured flash size 1MB" ) || failure "Build didn't fail with expected flash size failure message"
     mv sdkconfig.bak sdkconfig
 
-    print_status "sdkconfig should have contents both files: sdkconfig and sdkconfig.defaults"
+    print_status "sdkconfig should have contents of both files: sdkconfig and sdkconfig.defaults"
     make clean > /dev/null;
     rm -f sdkconfig.defaults;
     rm -f sdkconfig;
@@ -280,6 +280,64 @@ function run_tests()
     make defconfig > /dev/null;
     grep "CONFIG_PARTITION_TABLE_OFFSET=0x10000" sdkconfig || failure "The define from sdkconfig.defaults should be into sdkconfig"
     grep "CONFIG_PARTITION_TABLE_TWO_OTA=y" sdkconfig || failure "The define from sdkconfig should be into sdkconfig"
+    rm sdkconfig sdkconfig.defaults
+    make defconfig
+
+    print_status "Empty directory not treated as a component"
+    mkdir -p components/esp32
+    make || failure "Failed to build with empty esp32 directory in components"
+    rm -rf components
+
+    print_status "If a component directory is added to COMPONENT_DIRS, its subdirectories are not added"
+    mkdir -p main/test
+    touch main/test/component.mk
+    echo "#error This should not be built" > main/test/test.c
+    make || failure "COMPONENT_DIRS has added component subdirectory to the build"
+    rm -rf main/test
+
+    print_status "If a component directory is added to COMPONENT_DIRS, its sibling directories are not added"
+    mkdir -p mycomponents/mycomponent
+    touch mycomponents/mycomponent/component.mk
+    # first test by adding single component directory to EXTRA_COMPONENT_DIRS
+    mkdir -p mycomponents/esp32
+    touch mycomponents/esp32/component.mk
+    make EXTRA_COMPONENT_DIRS=$PWD/mycomponents/mycomponent || failure "EXTRA_COMPONENT_DIRS has added a sibling directory"
+    rm -rf mycomponents/esp32
+    # now the same thing, but add a components directory
+    mkdir -p esp32
+    touch esp32/component.mk
+    make EXTRA_COMPONENT_DIRS=$PWD/mycomponents || failure "EXTRA_COMPONENT_DIRS has added a sibling directory"
+    rm -rf esp32
+    rm -rf mycomponents
+
+    print_status "Handling deprecated Kconfig options"
+    make clean > /dev/null;
+    rm -f sdkconfig.defaults;
+    rm -f sdkconfig;
+    echo "" > ${IDF_PATH}/sdkconfig.rename;
+    make defconfig > /dev/null;
+    echo "CONFIG_TEST_OLD_OPTION=y" >> sdkconfig;
+    echo "CONFIG_TEST_OLD_OPTION CONFIG_TEST_NEW_OPTION" >> ${IDF_PATH}/sdkconfig.rename;
+    echo -e "\n\
+menu \"test\"\n\
+    config TEST_NEW_OPTION\n\
+        bool \"test\"\n\
+        default \"n\"\n\
+        help\n\
+            TEST_NEW_OPTION description\n\
+endmenu\n" >> ${IDF_PATH}/Kconfig;
+    make defconfig > /dev/null;
+    grep "CONFIG_TEST_OLD_OPTION=y" sdkconfig || failure "CONFIG_TEST_OLD_OPTION should be in sdkconfig for backward compatibility"
+    grep "CONFIG_TEST_NEW_OPTION=y" sdkconfig || failure "CONFIG_TEST_NEW_OPTION should be now in sdkconfig"
+    grep "#define CONFIG_TEST_NEW_OPTION 1" build/include/sdkconfig.h || failure "sdkconfig.h should contain the new macro"
+    grep "#define CONFIG_TEST_OLD_OPTION CONFIG_TEST_NEW_OPTION" build/include/sdkconfig.h || failure "sdkconfig.h should contain the compatibility macro"
+    grep "CONFIG_TEST_OLD_OPTION=y" build/include/config/auto.conf || failure "CONFIG_TEST_OLD_OPTION should be in auto.conf for backward compatibility"
+    grep "CONFIG_TEST_NEW_OPTION=y" build/include/config/auto.conf || failure "CONFIG_TEST_NEW_OPTION should be now in auto.conf"
+    rm -f sdkconfig sdkconfig.defaults
+    pushd ${IDF_PATH}
+    git checkout -- sdkconfig.rename Kconfig
+    popd
+    make defconfig
 
     print_status "All tests completed"
     if [ -n "${FAILURES}" ]; then

@@ -279,8 +279,11 @@ typedef UINT16 tBTM_BLE_STATE_MASK;
 #define BTM_LE_RESOLVING_LIST_MAX     0x20
 #endif
 
-#define BTM_DUPLICATE_SCAN_EXCEPTIONAL_INFO_ADV_ADDR   0
-#define BTM_DUPLICATE_SCAN_EXCEPTIONAL_INFO_MESH_LINK_ID   1
+#define BTM_DUPLICATE_SCAN_EXCEPTIONAL_INFO_ADV_ADDR             0
+#define BTM_DUPLICATE_SCAN_EXCEPTIONAL_INFO_MESH_LINK_ID         1
+#define BTM_DUPLICATE_SCAN_EXCEPTIONAL_INFO_MESH_BEACON_TYPE     2
+#define BTM_DUPLICATE_SCAN_EXCEPTIONAL_INFO_MESH_PROV_SRV_ADV    3
+#define BTM_DUPLICATE_SCAN_EXCEPTIONAL_INFO_MESH_PROXY_SRV_ADV   4
 
 typedef struct {
     BD_ADDR         *resolve_q_random_pseudo;
@@ -293,6 +296,7 @@ typedef struct {
     BOOLEAN     in_use;
     BOOLEAN     to_add;
     BD_ADDR     bd_addr;
+    tBLE_ADDR_TYPE addr_type;
     UINT8       attr;
 } tBTM_BLE_WL_OP;
 
@@ -319,6 +323,7 @@ typedef struct {
     /* observer callback and timer */
     tBTM_INQ_RESULTS_CB *p_obs_results_cb;
     tBTM_CMPL_CB *p_obs_cmpl_cb;
+    tBTM_INQ_DIS_CB *p_obs_discard_cb;
     TIMER_LIST_ENT obs_timer_ent;
 
     /* scan callback and timer */
@@ -368,6 +373,7 @@ extern "C" {
 
 void btm_ble_timeout(TIMER_LIST_ENT *p_tle);
 void btm_ble_process_adv_pkt (UINT8 *p);
+void btm_ble_process_adv_discard_evt(UINT8 *p);
 void btm_ble_proc_scan_rsp_rpt (UINT8 *p);
 tBTM_STATUS btm_ble_read_remote_name(BD_ADDR remote_bda, tBTM_INQ_INFO *p_cur, tBTM_CMPL_CB *p_cb);
 BOOLEAN btm_ble_cancel_remote_name(BD_ADDR remote_bda);
@@ -425,7 +431,7 @@ void btm_ble_update_sec_key_size(BD_ADDR bd_addr, UINT8 enc_key_size);
 UINT8 btm_ble_read_sec_key_size(BD_ADDR bd_addr);
 
 /* white list function */
-BOOLEAN btm_update_dev_to_white_list(BOOLEAN to_add, BD_ADDR bd_addr, tBTM_ADD_WHITELIST_CBACK *add_wl_cb);
+BOOLEAN btm_update_dev_to_white_list(BOOLEAN to_add, BD_ADDR bd_addr, tBLE_ADDR_TYPE addr_type, tBTM_ADD_WHITELIST_CBACK *add_wl_cb);
 void btm_update_scanner_filter_policy(tBTM_BLE_SFP scan_policy);
 void btm_update_adv_filter_policy(tBTM_BLE_AFP adv_policy);
 void btm_ble_clear_white_list (void);
@@ -443,7 +449,7 @@ BOOLEAN btm_ble_start_auto_conn(BOOLEAN start);
 BOOLEAN btm_ble_start_select_conn(BOOLEAN start, tBTM_BLE_SEL_CBACK   *p_select_cback);
 BOOLEAN btm_ble_renew_bg_conn_params(BOOLEAN add, BD_ADDR bd_addr);
 void btm_write_dir_conn_wl(BD_ADDR target_addr);
-void btm_ble_update_mode_operation(UINT8 link_role, BD_ADDR bda, UINT8 status);
+BOOLEAN btm_ble_update_mode_operation(UINT8 link_role, BD_ADDR bda, UINT8 status);
 BOOLEAN btm_execute_wl_dev_operation(void);
 void btm_ble_update_link_topology_mask(UINT8 role, BOOLEAN increase);
 

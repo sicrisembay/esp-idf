@@ -8,7 +8,7 @@ ESPFLASHSIZE ?= $(CONFIG_ESPTOOLPY_FLASHSIZE)
 
 CONFIG_ESPTOOLPY_COMPRESSED ?=
 
-PYTHON ?= $(call dequote,$(CONFIG_PYTHON))
+PYTHON ?= $(call dequote,$(CONFIG_SDK_PYTHON))
 
 # two commands that can be used from other components
 # to invoke esptool.py (with or without serial port args)
@@ -37,6 +37,10 @@ ifndef IS_BOOTLOADER_BUILD
 ESPTOOL_ELF2IMAGE_OPTIONS += --secure-pad
 endif
 endif
+endif
+
+ifndef IS_BOOTLOADER_BUILD
+ESPTOOL_ELF2IMAGE_OPTIONS += --elf-sha256-offset 0xb0
 endif
 
 ESPTOOLPY_WRITE_FLASH=$(ESPTOOLPY_SERIAL) write_flash $(if $(CONFIG_ESPTOOLPY_COMPRESSED),-z,-u) $(ESPTOOL_WRITE_FLASH_OPTIONS)
@@ -95,7 +99,7 @@ simple_monitor: $(call prereq_if_explicit,%flash) | check_python_dependencies
 
 PRINT_FILTER ?=
 
-MONITOR_OPTS := --baud $(MONITORBAUD) --port $(ESPPORT) --toolchain-prefix $(CONFIG_TOOLPREFIX) --make "$(MAKE)" --print_filter "$(PRINT_FILTER)"
+MONITOR_OPTS := --baud $(MONITORBAUD) --port $(ESPPORT) --toolchain-prefix $(CONFIG_SDK_TOOLPREFIX) --make "$(MAKE)" --print_filter "$(PRINT_FILTER)"
 
 monitor: $(call prereq_if_explicit,%flash) | check_python_dependencies
 	$(summary) MONITOR

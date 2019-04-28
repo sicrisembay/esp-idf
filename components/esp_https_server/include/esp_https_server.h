@@ -80,6 +80,7 @@ typedef struct httpd_ssl_config httpd_ssl_config_t;
     .httpd = {                                    \
         .task_priority      = tskIDLE_PRIORITY+5, \
         .stack_size         = 10240,              \
+        .core_id            = tskNO_AFFINITY,     \
         .server_port        = 0,                  \
         .ctrl_port          = 32768,              \
         .max_open_sockets   = 4,                  \
@@ -95,6 +96,7 @@ typedef struct httpd_ssl_config httpd_ssl_config_t;
         .global_transport_ctx_free_fn = NULL,     \
         .open_fn = NULL,                          \
         .close_fn = NULL,                         \
+        .uri_match_fn = NULL                      \
     },                                            \
     .cacert_pem = NULL,                           \
     .cacert_len = 0,                              \

@@ -11,6 +11,7 @@ System API
    Himem (large external SPI RAM) API <himem>
    Interrupt Allocation <intr_alloc>
    Watchdogs <wdts>
+   eFuse Manager <efuse>
    Inter-Processor Call <ipc>
    High Resolution Timer <esp_timer>
    Logging <log>
@@ -25,4 +26,4 @@ System API
    Miscellaneous System APIs <system>
 
 
-Example code for this API section is provided in :example:`system` directory of ESP-IDF examples.
+Code examples for this API section are provided in the :example:`system` directory of ESP-IDF examples.

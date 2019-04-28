@@ -1,4 +1,4 @@
-// Copyright 2015-2017 Espressif Systems (Shanghai) PTE LTD
+// Copyright 2015-2019 Espressif Systems (Shanghai) PTE LTD
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -657,21 +657,27 @@ int rmdir(const char* name)
     return ret;
 }
 
-int fcntl(int fd, int cmd, ...)
+int _fcntl_r(struct _reent *r, int fd, int cmd, int arg)
 {
     const vfs_entry_t* vfs = get_vfs_for_fd(fd);
     const int local_fd = get_local_fd(vfs, fd);
-    struct _reent* r = __getreent();
     if (vfs == NULL || local_fd < 0) {
         __errno_r(r) = EBADF;
         return -1;
     }
     int ret;
+    CHECK_AND_CALL(ret, r, vfs, fcntl, local_fd, cmd, arg);
+    return ret;
+}
+
+int __attribute__((weak)) fcntl(int fd, int cmd, ...)
+{
     va_list args;
     va_start(args, cmd);
-    CHECK_AND_CALL(ret, r, vfs, fcntl, local_fd, cmd, args);
+    int arg = va_arg(args, int);
     va_end(args);
-    return ret;
+    struct _reent* r = __getreent();
+    return _fcntl_r(r, fd, cmd, arg);
 }
 
 int ioctl(int fd, int cmd, ...)
@@ -818,6 +824,11 @@ int esp_vfs_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds
         return -1;
     }
 
+    esp_vfs_select_sem_t sel_sem = {
+        .is_sem_local = false,
+        .sem = NULL,
+    };
+
     int (*socket_select)(int, fd_set *, fd_set *, fd_set *, struct timeval *) = NULL;
     for (int fd = 0; fd < nfds; ++fd) {
         _lock_acquire(&s_fd_table_lock);
@@ -838,6 +849,7 @@ int esp_vfs_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds
                         esp_vfs_safe_fd_isset(fd, errorfds)) {
                     const vfs_entry_t *vfs = s_vfs[vfs_index];
                     socket_select = vfs->vfs.socket_select;
+                    sel_sem.sem = vfs->vfs.get_socket_select_semaphore();
                 }
             }
             continue;
@@ -868,19 +880,14 @@ int esp_vfs_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds
     // the global readfds, writefds and errorfds contain only socket FDs (if
     // there any)
 
-    /* Semaphore used for waiting select events from other VFS drivers when socket
-     * select is not used (not registered or socket FDs are not observed by the
-     * given call of select)
-     */
-    SemaphoreHandle_t select_sem = NULL;
-
     if (!socket_select) {
         // There is no socket VFS registered or select() wasn't called for
         // any socket. Therefore, we will use our own signalization.
-        if ((select_sem = xSemaphoreCreateBinary()) == NULL) {
+        sel_sem.is_sem_local = true;
+        if ((sel_sem.sem = xSemaphoreCreateBinary()) == NULL) {
             free(vfs_fds_triple);
             __errno_r(r) = ENOMEM;
-            ESP_LOGD(TAG, "cannot create select_sem");
+            ESP_LOGD(TAG, "cannot create select semaphore");
             return -1;
         }
     }
@@ -896,18 +903,18 @@ int esp_vfs_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds
             esp_vfs_log_fd_set("readfds", &item->readfds);
             esp_vfs_log_fd_set("writefds", &item->writefds);
             esp_vfs_log_fd_set("errorfds", &item->errorfds);
-            esp_err_t err = vfs->vfs.start_select(nfds, &item->readfds, &item->writefds, &item->errorfds, &select_sem);
+            esp_err_t err = vfs->vfs.start_select(nfds, &item->readfds, &item->writefds, &item->errorfds, sel_sem);
 
             if (err != ESP_OK) {
                 call_end_selects(i, vfs_fds_triple);
                 (void) set_global_fd_sets(vfs_fds_triple, s_vfs_count, readfds, writefds, errorfds);
-                if (select_sem) {
-                    vSemaphoreDelete(select_sem);
-                    select_sem = NULL;
+                if (sel_sem.is_sem_local && sel_sem.sem) {
+                    vSemaphoreDelete(sel_sem.sem);
+                    sel_sem.sem = NULL;
                 }
                 free(vfs_fds_triple);
                 __errno_r(r) = EINTR;
-                ESP_LOGD(TAG, "start_select failed");
+                ESP_LOGD(TAG, "start_select failed: %s", esp_err_to_name(err));
                 return -1;
             }
         }
@@ -941,16 +948,16 @@ int esp_vfs_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds
             ESP_LOGD(TAG, "timeout is %dms", timeout_ms);
         }
         ESP_LOGD(TAG, "waiting without calling socket_select");
-        xSemaphoreTake(select_sem, ticks_to_wait);
+        xSemaphoreTake(sel_sem.sem, ticks_to_wait);
     }
 
     call_end_selects(s_vfs_count, vfs_fds_triple); // for VFSs for start_select was called before
     if (ret >= 0) {
         ret += set_global_fd_sets(vfs_fds_triple, s_vfs_count, readfds, writefds, errorfds);
     }
-    if (select_sem) {
-        vSemaphoreDelete(select_sem);
-        select_sem = NULL;
+    if (sel_sem.is_sem_local && sel_sem.sem) {
+        vSemaphoreDelete(sel_sem.sem);
+        sel_sem.sem = NULL;
     }
     free(vfs_fds_triple);
 
@@ -961,10 +968,10 @@ int esp_vfs_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds
     return ret;
 }
 
-void esp_vfs_select_triggered(SemaphoreHandle_t *signal_sem)
+void esp_vfs_select_triggered(esp_vfs_select_sem_t sem)
 {
-    if (signal_sem && (*signal_sem)) {
-        xSemaphoreGive(*signal_sem);
+    if (sem.is_sem_local) {
+        xSemaphoreGive(sem.sem);
     } else {
         // Another way would be to go through s_fd_table and find the VFS
         // which has a permanent FD. But in order to avoid to lock
@@ -972,17 +979,17 @@ void esp_vfs_select_triggered(SemaphoreHandle_t *signal_sem)
         for (int i = 0; i < s_vfs_count; ++i) {
             const vfs_entry_t *vfs = s_vfs[i];
             if (vfs != NULL && vfs->vfs.stop_socket_select != NULL) {
-                vfs->vfs.stop_socket_select();
+                vfs->vfs.stop_socket_select(sem.sem);
                 break;
             }
         }
     }
 }
 
-void esp_vfs_select_triggered_isr(SemaphoreHandle_t *signal_sem, BaseType_t *woken)
+void esp_vfs_select_triggered_isr(esp_vfs_select_sem_t sem, BaseType_t *woken)
 {
-    if (signal_sem && (*signal_sem)) {
-        xSemaphoreGiveFromISR(*signal_sem, woken);
+    if (sem.is_sem_local) {
+        xSemaphoreGiveFromISR(sem.sem, woken);
     } else {
         // Another way would be to go through s_fd_table and find the VFS
         // which has a permanent FD. But in order to avoid to lock
@@ -990,7 +997,7 @@ void esp_vfs_select_triggered_isr(SemaphoreHandle_t *signal_sem, BaseType_t *wok
         for (int i = 0; i < s_vfs_count; ++i) {
             const vfs_entry_t *vfs = s_vfs[i];
             if (vfs != NULL && vfs->vfs.stop_socket_select_isr != NULL) {
-                vfs->vfs.stop_socket_select_isr(woken);
+                vfs->vfs.stop_socket_select_isr(sem.sem, woken);
                 break;
             }
         }
@@ -1108,5 +1115,81 @@ int esp_vfs_utime(const char *path, const struct utimbuf *times)
     }
     const char* path_within_vfs = translate_path(vfs, path);
     CHECK_AND_CALL(ret, r, vfs, utime, path_within_vfs, times);
+    return ret;
+}
+
+int esp_vfs_poll(struct pollfd *fds, nfds_t nfds, int timeout)
+{
+    struct timeval tv = {
+        // timeout is in milliseconds
+        .tv_sec = timeout / 1000,
+        .tv_usec = (timeout % 1000) * 1000,
+    };
+    int max_fd = -1;
+    fd_set readfds;
+    fd_set writefds;
+    fd_set errorfds;
+    struct _reent* r = __getreent();
+    int ret = 0;
+
+    if (fds == NULL) {
+        __errno_r(r) = ENOENT;
+        return -1;
+    }
+
+    FD_ZERO(&readfds);
+    FD_ZERO(&writefds);
+    FD_ZERO(&errorfds);
+
+    for (int i = 0; i < nfds; ++i) {
+        fds[i].revents = 0;
+
+        if (fds[i].fd < 0) {
+            // revents should remain 0 and events ignored (according to the documentation of poll()).
+            continue;
+        }
+
+        if (fds[i].fd >= MAX_FDS) {
+            fds[i].revents |= POLLNVAL;
+            ++ret;
+            continue;
+        }
+
+        if (fds[i].events & (POLLIN | POLLRDNORM | POLLRDBAND | POLLPRI)) {
+            FD_SET(fds[i].fd, &readfds);
+            FD_SET(fds[i].fd, &errorfds);
+            max_fd = MAX(max_fd, fds[i].fd);
+        }
+
+        if (fds[i].events & (POLLOUT | POLLWRNORM | POLLWRBAND)) {
+            FD_SET(fds[i].fd, &writefds);
+            FD_SET(fds[i].fd, &errorfds);
+            max_fd = MAX(max_fd, fds[i].fd);
+        }
+    }
+
+    const int select_ret = esp_vfs_select(max_fd + 1, &readfds, &writefds, &errorfds, timeout < 0 ? NULL: &tv);
+
+    if (select_ret > 0) {
+        ret += select_ret;
+
+        for (int i = 0; i < nfds; ++i) {
+            if (FD_ISSET(fds[i].fd, &readfds)) {
+                fds[i].revents |= POLLIN;
+            }
+
+            if (FD_ISSET(fds[i].fd, &writefds)) {
+                fds[i].revents |= POLLOUT;
+            }
+
+            if (FD_ISSET(fds[i].fd, &errorfds)) {
+                fds[i].revents |= POLLERR;
+            }
+        }
+    } else {
+        ret = select_ret;
+        // keeping the errno from select()
+    }
+
     return ret;
 }
