@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Test the build system for basic consistency
 #
@@ -46,7 +46,7 @@ function run_tests()
     if [ -z $CHECKOUT_REF_SCRIPT ]; then
         git checkout ${CI_BUILD_REF_NAME} || echo "Using esp-idf-template default branch..."
     else
-        $CHECKOUT_REF_SCRIPT esp-idf-template
+        $CHECKOUT_REF_SCRIPT esp-idf-template .
     fi
 
     print_status "Updating template config..."
@@ -57,6 +57,7 @@ function run_tests()
 
     BOOTLOADER_BINS="bootloader/bootloader.elf bootloader/bootloader.bin"
     APP_BINS="app-template.elf app-template.bin"
+    PHY_INIT_BIN="phy_init_data.bin"
 
     print_status "Initial clean build"
     # if make fails here, everything fails
@@ -68,9 +69,9 @@ function run_tests()
     print_status "Updating component source file rebuilds component"
     # touch a file & do a build
     take_build_snapshot
-    touch ${IDF_PATH}/components/esp32/cpu_start.c
+    touch ${IDF_PATH}/components/esp_system/port/cpu_start.c
     make || failure "Failed to partial build"
-    assert_rebuilt ${APP_BINS} esp32/libesp32.a esp32/cpu_start.o
+    assert_rebuilt ${APP_BINS} esp_system/libesp_system.a esp_system/port/cpu_start.o
     assert_not_rebuilt lwip/liblwip.a freertos/libfreertos.a ${BOOTLOADER_BINS} partitions_singleapp.bin
 
     print_status "Bootloader source file rebuilds bootloader"
@@ -182,7 +183,7 @@ function run_tests()
     # and therefore should rebuild
     assert_rebuilt newlib/syscall_table.o
     assert_rebuilt nvs_flash/src/nvs_api.o
-    assert_rebuilt freertos/xtensa_vectors.o
+    assert_rebuilt freertos/xtensa/xtensa_vectors.o
 
     print_status "Updating project Makefile triggers full recompile"
     make
@@ -192,7 +193,7 @@ function run_tests()
     # similar to previous test
     assert_rebuilt newlib/syscall_table.o
     assert_rebuilt nvs_flash/src/nvs_api.o
-    assert_rebuilt freertos/xtensa_vectors.o
+    assert_rebuilt freertos/xtensa/xtensa_vectors.o
 
     print_status "print_flash_cmd target should produce one line of output"
     make
@@ -250,12 +251,12 @@ function run_tests()
 	echo "project-version-2.0(012345678901234567890123456789)" > ${TESTDIR}/template/version.txt
 	make
     assert_rebuilt ${APP_BINS}
-    assert_not_rebuilt ${BOOTLOADER_BINS} esp32/libesp32.a
+    assert_not_rebuilt ${BOOTLOADER_BINS} esp_system/libesp_system.a
 
     print_status "Re-building does not change app.bin"
     take_build_snapshot
     make
-    assert_not_rebuilt ${APP_BINS} ${BOOTLOADER_BINS} esp32/libesp32.a
+    assert_not_rebuilt ${APP_BINS} ${BOOTLOADER_BINS} esp_system/libesp_system.a
     rm -f ${TESTDIR}/template/version.txt
 
     print_status "Get the version of app from git describe. Project is not inside IDF and do not have a tag only a hash commit."
@@ -264,6 +265,22 @@ function run_tests()
     version+=$(git describe --always --tags --dirty)
     grep "${version}" log.log || failure "Project version should have a hash commit"
 
+    print_status "Get the version of app from Kconfig option"
+    make clean > /dev/null
+    rm -f sdkconfig.defaults
+    rm -f sdkconfig
+    echo "project_version_from_txt" > ${TESTDIR}/template/version.txt
+    echo "CONFIG_APP_PROJECT_VER_FROM_CONFIG=y" >> sdkconfig.defaults
+    echo 'CONFIG_APP_PROJECT_VER="project_version_from_Kconfig"' >> sdkconfig.defaults
+    make defconfig > /dev/null
+    make >> log.log || failure "Failed to build"
+    version="App \"app-template\" version: "
+    version+="project_version_from_Kconfig"
+    grep "${version}" log.log || failure "Project version should be from Kconfig"
+    rm -f sdkconfig.defaults
+    rm -f sdkconfig
+    rm -f ${TESTDIR}/template/version.txt
+
     print_status "Build fails if partitions don't fit in flash"
     sed -i.bak "s/CONFIG_ESPTOOLPY_FLASHSIZE.\+//" sdkconfig  # remove all flashsize config
     echo "CONFIG_ESPTOOLPY_FLASHSIZE_1MB=y" >> sdkconfig     # introduce undersize flash
@@ -271,16 +288,49 @@ function run_tests()
     ( make 2>&1 | grep "does not fit in configured flash size 1MB" ) || failure "Build didn't fail with expected flash size failure message"
     mv sdkconfig.bak sdkconfig
 
-    print_status "sdkconfig should have contents of both files: sdkconfig and sdkconfig.defaults"
+    print_status "Flash size is correctly set in the bootloader image header"
+    # Build with the default 2MB setting
+    rm sdkconfig
+    make defconfig && make bootloader || failure "Failed to build bootloader"
+    bin_header_match build/bootloader/bootloader.bin "0210"
+    # Change to 4MB
+    echo "CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y" > sdkconfig
+    make defconfig && make bootloader || failure "Failed to build bootloader"
+    bin_header_match build/bootloader/bootloader.bin "0220"
+    # Change to QIO, bootloader should still be DIO (will change to QIO in 2nd stage bootloader)
+    echo "CONFIG_FLASHMODE_QIO=y" > sdkconfig
+    make defconfig && make bootloader || failure "Failed to build bootloader"
+    bin_header_match build/bootloader/bootloader.bin "0210"
+    # Change to 80 MHz
+    echo "CONFIG_ESPTOOLPY_FLASHFREQ_80M=y" > sdkconfig
+    make defconfig && make bootloader || failure "Failed to build bootloader"
+    bin_header_match build/bootloader/bootloader.bin "021f"
+    rm sdkconfig
+
+    print_status "sdkconfig should have contents of all files: sdkconfig, sdkconfig.defaults, sdkconfig.defaults.IDF_TARGET"
     make clean > /dev/null;
     rm -f sdkconfig.defaults;
     rm -f sdkconfig;
     echo "CONFIG_PARTITION_TABLE_OFFSET=0x10000" >> sdkconfig.defaults;
+    echo "CONFIG_ESP32_DEFAULT_CPU_FREQ_240=y" >> sdkconfig.defaults.esp32;
     echo "CONFIG_PARTITION_TABLE_TWO_OTA=y" >> sdkconfig;
     make defconfig > /dev/null;
     grep "CONFIG_PARTITION_TABLE_OFFSET=0x10000" sdkconfig || failure "The define from sdkconfig.defaults should be into sdkconfig"
+    grep "CONFIG_ESP32_DEFAULT_CPU_FREQ_240=y" sdkconfig || failure "The define from sdkconfig.defaults.esp32 should be into sdkconfig"
     grep "CONFIG_PARTITION_TABLE_TWO_OTA=y" sdkconfig || failure "The define from sdkconfig should be into sdkconfig"
-    rm sdkconfig sdkconfig.defaults
+    rm sdkconfig sdkconfig.defaults sdkconfig.defaults.esp32
+    make defconfig
+
+    print_status "can build with phy_init_data"
+    make clean > /dev/null
+    rm -f sdkconfig.defaults
+    rm -f sdkconfig
+    echo "CONFIG_ESP32_PHY_INIT_DATA_IN_PARTITION=y" >> sdkconfig.defaults
+    make defconfig > /dev/null
+    make || failure "Failed to build with PHY_INIT_DATA"
+    assert_built ${APP_BINS} ${BOOTLOADER_BINS} ${PHY_INIT_BIN}
+    rm sdkconfig
+    rm sdkconfig.defaults
     make defconfig
 
     print_status "Empty directory not treated as a component"
@@ -337,7 +387,28 @@ endmenu\n" >> ${IDF_PATH}/Kconfig;
     pushd ${IDF_PATH}
     git checkout -- sdkconfig.rename Kconfig
     popd
-    make defconfig
+
+    print_status "Handling deprecated Kconfig options in sdkconfig.defaults"
+    make clean;
+    rm -f sdkconfig;
+    echo "CONFIG_TEST_OLD_OPTION=7" > sdkconfig.defaults;
+    echo "CONFIG_TEST_OLD_OPTION CONFIG_TEST_NEW_OPTION" > ${IDF_PATH}/sdkconfig.rename;
+    echo -e "\n\
+menu \"test\"\n\
+    config TEST_NEW_OPTION\n\
+        int \"TEST_NEW_OPTION\"\n\
+        range 0 10\n\
+        default 5\n\
+        help\n\
+            TEST_NEW_OPTION description\n\
+endmenu\n" >> ${IDF_PATH}/Kconfig;
+    make defconfig > /dev/null;
+    grep "CONFIG_TEST_OLD_OPTION=7" sdkconfig || failure "CONFIG_TEST_OLD_OPTION=7 should be in sdkconfig for backward compatibility"
+    grep "CONFIG_TEST_NEW_OPTION=7" sdkconfig || failure "CONFIG_TEST_NEW_OPTION=7 should be in sdkconfig"
+    rm -f sdkconfig.defaults;
+    pushd ${IDF_PATH}
+    git checkout -- sdkconfig.rename Kconfig
+    popd
 
     print_status "All tests completed"
     if [ -n "${FAILURES}" ]; then
@@ -437,6 +508,18 @@ function assert_not_rebuilt()
 function clean_build_dir()
 {
     rm -rf --preserve-root ${BUILD}/*
+}
+
+# check the bytes 3-4 of the binary image header. e.g.:
+#   bin_header_match app.bin 0210
+function bin_header_match()
+{
+    expected=$2
+    filename=$1
+    actual=$(xxd -s 2 -l 2 -ps $1)
+    if [ ! "$expected" = "$actual" ]; then
+        failure "Incorrect binary image header, expected $expected got $actual"
+    fi
 }
 
 cd ${TESTDIR}

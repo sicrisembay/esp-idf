@@ -35,7 +35,9 @@ typedef struct esp_http_client_event *esp_http_client_event_handle_t;
 typedef enum {
     HTTP_EVENT_ERROR = 0,       /*!< This event occurs when there are any errors during execution */
     HTTP_EVENT_ON_CONNECTED,    /*!< Once the HTTP has been connected to the server, no data exchange has been performed */
-    HTTP_EVENT_HEADER_SENT,     /*!< After sending all the headers to the server */
+    HTTP_EVENT_HEADERS_SENT,     /*!< After sending all the headers to the server */
+    HTTP_EVENT_HEADER_SENT = HTTP_EVENT_HEADERS_SENT, /*!< This header has been kept for backward compatability
+                                                           and will be deprecated in future versions esp-idf */
     HTTP_EVENT_ON_HEADER,       /*!< Occurs when receiving each header sent from the server */
     HTTP_EVENT_ON_DATA,         /*!< Occurs when receiving data from the server, possibly multiple portions of the packet */
     HTTP_EVENT_ON_FINISH,       /*!< Occurs when finish a HTTP session */
@@ -81,6 +83,13 @@ typedef enum {
     HTTP_METHOD_SUBSCRIBE,  /*!< HTTP SUBSCRIBE Method */
     HTTP_METHOD_UNSUBSCRIBE,/*!< HTTP UNSUBSCRIBE Method */
     HTTP_METHOD_OPTIONS,    /*!< HTTP OPTIONS Method */
+    HTTP_METHOD_COPY,       /*!< HTTP COPY Method */
+    HTTP_METHOD_MOVE,       /*!< HTTP MOVE Method */
+    HTTP_METHOD_LOCK,       /*!< HTTP LOCK Method */
+    HTTP_METHOD_UNLOCK,     /*!< HTTP UNLOCK Method */
+    HTTP_METHOD_PROPFIND,   /*!< HTTP PROPFIND Method */
+    HTTP_METHOD_PROPPATCH,  /*!< HTTP PROPPATCH Method */
+    HTTP_METHOD_MKCOL,      /*!< HTTP MKCOL Method */
     HTTP_METHOD_MAX,
 } esp_http_client_method_t;
 
@@ -111,15 +120,35 @@ typedef struct {
     esp_http_client_method_t    method;                   /*!< HTTP Method */
     int                         timeout_ms;               /*!< Network timeout in milliseconds */
     bool                        disable_auto_redirect;    /*!< Disable HTTP automatic redirects */
-    int                         max_redirection_count;    /*!< Max redirection number, using default value if zero*/
+    int                         max_redirection_count;    /*!< Max number of redirections on receiving HTTP redirect status code, using default value if zero*/
+    int                         max_authorization_retries;    /*!< Max connection retries on receiving HTTP unauthorized status code, using default value if zero. Disables authorization retry if -1*/
     http_event_handle_cb        event_handler;             /*!< HTTP Event Handle */
     esp_http_client_transport_t transport_type;           /*!< HTTP transport type, see `esp_http_client_transport_t` */
-    int                         buffer_size;              /*!< HTTP buffer size (both send and receive) */
+    int                         buffer_size;              /*!< HTTP receive buffer size */
+    int                         buffer_size_tx;           /*!< HTTP transmit buffer size */
     void                        *user_data;               /*!< HTTP user_data context */
     bool                        is_async;                 /*!< Set asynchronous mode, only supported with HTTPS for now */
     bool                        use_global_ca_store;      /*!< Use a global ca_store for all the connections in which this bool is set. */
+    bool                        skip_cert_common_name_check;    /*!< Skip any validation of server certificate CN field */
 } esp_http_client_config_t;
 
+/**
+ * Enum for the HTTP status codes.
+ */
+typedef enum {
+    /* 3xx - Redirection */
+    HttpStatus_MovedPermanently  = 301,
+    HttpStatus_Found             = 302,
+    HttpStatus_TemporaryRedirect = 307,
+
+    /* 4xx - Client Error */
+    HttpStatus_Unauthorized      = 401,
+    HttpStatus_Forbidden         = 403,
+    HttpStatus_NotFound          = 404,
+
+    /* 5xx - Server Error */
+    HttpStatus_InternalError     = 500
+} HttpStatus_Code;
 
 #define ESP_ERR_HTTP_BASE               (0x7000)                    /*!< Starting number of HTTP error codes */
 #define ESP_ERR_HTTP_MAX_REDIRECT       (ESP_ERR_HTTP_BASE + 1)     /*!< The error exceeds the number of HTTP redirects */
@@ -250,6 +279,20 @@ esp_err_t esp_http_client_get_header(esp_http_client_handle_t client, const char
 esp_err_t esp_http_client_get_username(esp_http_client_handle_t client, char **value);
 
 /**
+ * @brief      Set http request username.
+ *             The value of username parameter will be assigned to username buffer.
+ *             If the username parameter is NULL then username buffer will be freed.
+ *
+ * @param[in]  client    The esp_http_client handle
+ * @param[in]  username  The username value
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_ERR_INVALID_ARG
+ */
+esp_err_t esp_http_client_set_username(esp_http_client_handle_t client, const char *username);
+
+/**
  * @brief      Get http request password.
  *             The address of password buffer will be assigned to value parameter.
  *             This function must be called after `esp_http_client_init`.
@@ -262,6 +305,32 @@ esp_err_t esp_http_client_get_username(esp_http_client_handle_t client, char **v
  *     - ESP_ERR_INVALID_ARG
  */
 esp_err_t esp_http_client_get_password(esp_http_client_handle_t client, char **value);
+
+/**
+ * @brief      Set http request password.
+ *             The value of password parameter will be assigned to password buffer.
+ *             If the password parameter is NULL then password buffer will be freed.
+ *
+ * @param[in]  client    The esp_http_client handle
+ * @param[in]  password  The password value
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_ERR_INVALID_ARG
+ */
+esp_err_t esp_http_client_set_password(esp_http_client_handle_t client, char *password);
+
+/**
+ * @brief      Set http request auth_type.
+ *
+ * @param[in]  client    The esp_http_client handle
+ * @param[in]  auth_type The esp_http_client auth type
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_ERR_INVALID_ARG
+ */
+esp_err_t esp_http_client_set_authtype(esp_http_client_handle_t client, esp_http_client_auth_type_t auth_type);
 
 /**
  * @brief      Set http request method
@@ -418,6 +487,69 @@ esp_http_client_transport_t esp_http_client_get_transport_type(esp_http_client_h
  *     - ESP_FAIL
  */
 esp_err_t esp_http_client_set_redirection(esp_http_client_handle_t client);
+
+/**
+ * @brief      On receiving HTTP Status code 401, this API can be invoked to add authorization
+ *             information.
+ *
+ * @note       There is a possibility of receiving body message with redirection status codes, thus make sure
+ *             to flush off body data after calling this API.
+ *
+ * @param[in]  client   The esp_http_client handle
+ */
+void esp_http_client_add_auth(esp_http_client_handle_t client);
+
+/**
+ * @brief      Checks if entire data in the response has been read without any error.
+ *
+ * @param[in]  client   The esp_http_client handle
+ * 
+ * @return
+ *     - true
+ *     - false
+ */
+bool esp_http_client_is_complete_data_received(esp_http_client_handle_t client);
+
+/**
+ * @brief      Helper API to read larger data chunks
+ *             This is a helper API which internally calls `esp_http_client_read` multiple times till the end of data is reached or till the buffer gets full.
+ *
+ * @param[in]  client   The esp_http_client handle
+ * @param      buffer   The buffer
+ * @param[in]  len      The buffer length
+ *
+ * @return
+ *     - Length of data was read
+ */
+
+int esp_http_client_read_response(esp_http_client_handle_t client, char *buffer, int len);
+
+/**
+ * @brief          Get URL from client
+ *
+ * @param[in]      client   The esp_http_client handle
+ * @param[inout]   url      The buffer to store URL
+ * @param[in]      len      The buffer length
+ *
+ * @return
+ *     - ESP_OK
+ *     - ESP_FAIL
+ */
+
+esp_err_t esp_http_client_get_url(esp_http_client_handle_t client, char *url, const int len);
+
+/**
+ * @brief          Get Chunk-Length from client
+ *
+ * @param[in]      client   The esp_http_client handle
+ * @param[out]     len      Variable to store length
+ *
+ * @return
+ *     - ESP_OK                 If successful, len will have length of current chunk
+ *     - ESP_FAIL               If the server is not a chunked server
+ *     - ESP_ERR_INVALID_ARG    If the client or len are NULL
+ */
+esp_err_t esp_http_client_get_chunk_length(esp_http_client_handle_t client, int *len);
 
 #ifdef __cplusplus
 }

@@ -23,8 +23,8 @@
 #include "esp_modbus_common.h"      // for common defines
 
 /* ----------------------- Defines ------------------------------------------*/
-#define MB_CONTROLLER_NOTIFY_QUEUE_SIZE     (CONFIG_MB_CONTROLLER_NOTIFY_QUEUE_SIZE) // Number of messages in parameter notification queue
-#define MB_CONTROLLER_NOTIFY_TIMEOUT        (pdMS_TO_TICKS(CONFIG_MB_CONTROLLER_NOTIFY_TIMEOUT)) // notification timeout
+#define MB_CONTROLLER_NOTIFY_QUEUE_SIZE     (CONFIG_FMB_CONTROLLER_NOTIFY_QUEUE_SIZE) // Number of messages in parameter notification queue
+#define MB_CONTROLLER_NOTIFY_TIMEOUT        (pdMS_TO_TICKS(CONFIG_FMB_CONTROLLER_NOTIFY_TIMEOUT)) // notification timeout
 
 /*
  * @brief Initialize Modbus controller and stack
@@ -34,7 +34,7 @@
  *     - ESP_OK   Success
  *     - ESP_ERR_NO_MEM Parameter error
  */
-esp_err_t mbc_serial_slave_create(mb_port_type_t port_type, void** handler);
+esp_err_t mbc_serial_slave_create(void** handler);
 
 #endif // _MODBUS_SERIAL_CONTROLLER_SLAVE
 

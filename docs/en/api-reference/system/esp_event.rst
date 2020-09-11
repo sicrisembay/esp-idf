@@ -54,7 +54,7 @@ In code, the flow above may look like as follows:
 
         esp_event_loop_handle_t loop_handle;
 
-        esp_event_loop_create(&loop_args, &loop_handle)
+        esp_event_loop_create(&loop_args, &loop_handle);
 
         // 3. Register event handler defined in (1). MY_EVENT_BASE and MY_EVENT_ID specifies a hypothetical
         // event that handler run_on_event should execute on when it gets posted to the loop.
@@ -200,7 +200,7 @@ handlers will also get executed in between.
 Event loop profiling
 --------------------
 
-A configuration option :ref:`CONFIG_EVENT_LOOP_PROFILING` can be enabled in order to activate statistics collection for all event loops created.
+A configuration option :ref:`CONFIG_ESP_EVENT_LOOP_PROFILING` can be enabled in order to activate statistics collection for all event loops created.
 The function :cpp:func:`esp_event_dump` can be used to output the collected statistics to a file stream. More details on the information included in the dump
 can be found in the :cpp:func:`esp_event_dump` API Reference.
 
@@ -216,8 +216,8 @@ Other examples which also adopt esp_event library:
 API Reference
 -------------
 
-.. include:: /_build/inc/esp_event.inc
-.. include:: /_build/inc/esp_event_base.inc
+.. include-build-file:: inc/esp_event.inc
+.. include-build-file:: inc/esp_event_base.inc
 
 Related Documents
 -----------------

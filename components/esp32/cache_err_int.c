@@ -23,24 +23,29 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include "freertos/FreeRTOS.h"
-#include "esp_err.h"
-#include "esp_intr_alloc.h"
-#include "esp_attr.h"
-#include "soc/dport_reg.h"
-#include "sdkconfig.h"
-#include "esp32/dport_access.h"
 
-void esp_cache_err_int_init()
+#include "esp_err.h"
+#include "esp_attr.h"
+
+#include "esp_intr_alloc.h"
+#include "soc/dport_reg.h"
+#include "hal/cpu_hal.h"
+
+#include "esp32/dport_access.h"
+#include "esp32/rom/ets_sys.h" // for intr_matrix_set
+
+#include "sdkconfig.h"
+
+void esp_cache_err_int_init(void)
 {
-    uint32_t core_id = xPortGetCoreID();
-    ESP_INTR_DISABLE(ETS_CACHEERR_INUM);
+    uint32_t core_id = cpu_hal_get_core_id();
+    ESP_INTR_DISABLE(ETS_MEMACCESS_ERR_INUM);
 
     // We do not register a handler for the interrupt because it is interrupt
     // level 4 which is not serviceable from C. Instead, xtensa_vectors.S has
     // a call to the panic handler for
     // this interrupt.
-    intr_matrix_set(core_id, ETS_CACHE_IA_INTR_SOURCE, ETS_CACHEERR_INUM);
+    intr_matrix_set(core_id, ETS_CACHE_IA_INTR_SOURCE, ETS_MEMACCESS_ERR_INUM);
 
     // Enable invalid cache access interrupt when the cache is disabled.
     // When the interrupt happens, we can not determine the CPU where the
@@ -68,12 +73,11 @@ void esp_cache_err_int_init()
             DPORT_CACHE_IA_INT_APP_IRAM0 |
             DPORT_CACHE_IA_INT_APP_IRAM1);
     }
-    ESP_INTR_ENABLE(ETS_CACHEERR_INUM);
+    ESP_INTR_ENABLE(ETS_MEMACCESS_ERR_INUM);
 }
 
-int IRAM_ATTR esp_cache_err_get_cpuid()
+int IRAM_ATTR esp_cache_err_get_cpuid(void)
 {
-    esp_dport_access_int_pause();
     const uint32_t pro_mask =
             DPORT_PRO_CPU_DISABLED_CACHE_IA_DRAM1 |
             DPORT_PRO_CPU_DISABLED_CACHE_IA_DROM0 |

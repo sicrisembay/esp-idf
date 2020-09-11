@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <malloc.h>
 #include <string.h>
-#include "esp32/rom/ets_sys.h"
+#include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -16,14 +16,14 @@
 #include "unity.h"
 #include "driver/spi_master.h"
 #include "driver/spi_slave.h"
-#include "soc/dport_reg.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "soc/spi_periph.h"
 #include "test_utils.h"
 #include "test/test_common_spi.h"
 #include "soc/gpio_periph.h"
-#include "sdkconfig.h"
+
+#include "hal/spi_ll.h"
 
 
 /********************************************************************************
@@ -35,10 +35,9 @@ TEST_CASE("local test sio", "[spi]")
     WORD_ALIGNED_ATTR uint8_t master_rx_buffer[320];
     WORD_ALIGNED_ATTR uint8_t slave_rx_buffer[320];
 
-    for (int i = 0; i < 16; i++) {
-        SPI1.data_buf[0] = 0xcccccccc;
-        SPI2.data_buf[0] = 0xcccccccc;
-    }
+    uint32_t pre_set[16] = {[0 ... 15] = 0xcccccccc,};
+    spi_ll_write_buffer(SPI_LL_GET_HW(TEST_SPI_HOST),   (uint8_t*)pre_set, 16*32);
+    spi_ll_write_buffer(SPI_LL_GET_HW(TEST_SLAVE_HOST), (uint8_t*)pre_set, 16*32);
 
     /* This test use a strange connection to test the SIO mode:
      * master spid -> slave spid
@@ -52,7 +51,7 @@ TEST_CASE("local test sio", "[spi]")
 
     int miso_io_num = bus_cfg.miso_io_num;
     int mosi_io_num = bus_cfg.mosi_io_num;
-    bus_cfg.mosi_io_num = bus_cfg.miso_io_num;
+    bus_cfg.mosi_io_num = miso_io_num;
     bus_cfg.miso_io_num = -1;
     TEST_ESP_OK(spi_bus_initialize(TEST_SPI_HOST, &bus_cfg, 0));
 
@@ -103,6 +102,8 @@ TEST_CASE("local test sio", "[spi]")
     master_free_device_bus(spi);
 }
 
+#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2)
+//These tests are ESP32 only due to lack of runners
 /********************************************************************************
  *      Test SIO Master & Slave
  ********************************************************************************/
@@ -155,7 +156,7 @@ void test_sio_master_round(bool test_mosi)
     master_free_device_bus(spi);
 }
 
-void test_sio_master()
+void test_sio_master(void)
 {
     test_sio_master_round(true);
     unity_send_signal("master ready");
@@ -211,7 +212,7 @@ void test_sio_slave_round(bool test_mosi)
     spi_slave_free(TEST_SLAVE_HOST);
 }
 
-void test_sio_slave()
+void test_sio_slave(void)
 {
     test_sio_slave_round(true);
     unity_wait_for_signal("master ready");
@@ -219,3 +220,4 @@ void test_sio_slave()
 }
 
 TEST_CASE_MULTIPLE_DEVICES("sio mode", "[spi][test_env=Example_SPI_Multi_device]", test_sio_master, test_sio_slave);
+#endif

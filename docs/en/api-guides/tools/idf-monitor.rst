@@ -2,44 +2,46 @@
 IDF Monitor
 ***********
 
+:link_to_translation:`zh_CN:[中文]`
+
 The IDF monitor tool is mainly a serial terminal program which relays serial data to and from the target device's serial port. It also provides some IDF-specific features.
 
-This tool can be launched by invoking in IDF the following target:
+This tool can be launched from an IDF project by running ``idf.py monitor``.
 
-- **For make**: ``make monitor``
-- **For cmake**: ``idf.py monitor``
-
+(For the legacy GNU Make system, run ``make monitor``.)
 
 Keyboard Shortcuts
 ==================
 
 For easy interaction with IDF Monitor, use the keyboard shortcuts given in the table.
 
-+-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-| Keyboard Shortcut | Action                                                 | Description                                                                                                                                                      |
-+===================+========================================================+==================================================================================================================================================================+
-| Ctrl+]            | Exit the program                                       |                                                                                                                                                                  |
-+-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-| Ctrl+T            | Menu escape key                                        | Press and follow it by one of the keys given below.                                                                                                              |
-+-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-|  - Ctrl+T         | Send the menu character itself to remote               |                                                                                                                                                                  |
-+-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-|  - Ctrl+]         | Send the exit character itself to remote               |                                                                                                                                                                  |
-+-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-|  - Ctrl+P         | Reset target into bootloader to pause app via RTS line | Resets the target, into bootloader via the RTS line (if connected), so that the board runs nothing. Useful when you need to wait for another device to startup.  |
-+-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-|  - Ctrl+R         | Reset target board via RTS                             | Resets the target board and re-starts the application via the RTS line (if connected).                                                                           |
-+-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-|  - Ctrl+F         | Build and flash the project                            | Pauses idf_monitor to run the ``make flash`` (``idf.py flash``) target, then resumes idf_monitor. Any changed source files are recompiled and then re-flashed.   |
-+-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-|  - Ctrl+A         | Build and flash the app only                           | Pauses idf_monitor to run the ``app-flash`` target, then resumes idf_monitor. Similar to the ``flash`` target, but only the main app is built and re-flashed.    |
-+-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-|  - Ctrl+Y         | Stop/resume log output printing on screen              | Discards all incoming serial data while activated. Allows to quickly pause and examine log output without quitting the monitor.                                  |
-+-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-|  - Ctrl+L         | Stop/resume log output saved to file                   | Creates a file in the project directory and the output is written to that file until this is disabled with the same keyboard shortcut (or IDF Monitor exits).    |
-+-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------+
-|  - Ctrl+H         | Display all keyboard shortcuts                         |                                                                                                                                                                  |
-+-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------+
++-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| Keyboard Shortcut | Action                                                 | Description                                                                                                                                                                                                                                          |
++===================+========================================================+======================================================================================================================================================================================================================================================+
+| Ctrl+]            | Exit the program                                       |                                                                                                                                                                                                                                                      |
++-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| Ctrl+T            | Menu escape key                                        | Press and follow it by one of the keys given below.                                                                                                                                                                                                  |
++-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|  - Ctrl+T         | Send the menu character itself to remote               |                                                                                                                                                                                                                                                      |
++-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|  - Ctrl+]         | Send the exit character itself to remote               |                                                                                                                                                                                                                                                      |
++-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|  - Ctrl+P         | Reset target into bootloader to pause app via RTS line | Resets the target, into bootloader via the RTS line (if connected), so that the board runs nothing. Useful when you need to wait for another device to startup.                                                                                      |
++-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|  - Ctrl+R         | Reset target board via RTS                             | Resets the target board and re-starts the application via the RTS line (if connected).                                                                                                                                                               |
++-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|  - Ctrl+F         | Build and flash the project                            | Pauses idf_monitor to run the project ``flash`` target, then resumes idf_monitor. Any changed source files are recompiled and then re-flashed. Target ``encrypted-flash`` is run if idf_monitor was started with argument ``-E``.                    |
++-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|  - Ctrl+A (or A)  | Build and flash the app only                           | Pauses idf_monitor to run the ``app-flash`` target, then resumes idf_monitor. Similar to the ``flash`` target, but only the main app is built and re-flashed. Target ``encrypted-app-flash`` is run if idf_monitor was started with argument ``-E``. |
++-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|  - Ctrl+Y         | Stop/resume log output printing on screen              | Discards all incoming serial data while activated. Allows to quickly pause and examine log output without quitting the monitor.                                                                                                                      |
++-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|  - Ctrl+L         | Stop/resume log output saved to file                   | Creates a file in the project directory and the output is written to that file until this is disabled with the same keyboard shortcut (or IDF Monitor exits).                                                                                        |
++-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|  - Ctrl+H (or H)  | Display all keyboard shortcuts                         |                                                                                                                                                                                                                                                      |
++-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|  - Ctrl+X (or X)  | Exit the program                                       |                                                                                                                                                                                                                                                      |
++-------------------+--------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
 
 Any keys pressed, other than ``Ctrl-]`` and ``Ctrl-T``, will be sent through the serial port.
 
@@ -87,13 +89,11 @@ IDF Monitor adds more details to the dump::
     0x400dbf56: still_dont_crash at /home/gus/esp/32/idf/examples/get-started/hello_world/main/./hello_world_main.c:47
     0x400dbf5e: dont_crash at /home/gus/esp/32/idf/examples/get-started/hello_world/main/./hello_world_main.c:42
     0x400dbf82: app_main at /home/gus/esp/32/idf/examples/get-started/hello_world/main/./hello_world_main.c:33
-    0x400d071d: main_task at /home/gus/esp/32/idf/components/esp32/./cpu_start.c:254
+    0x400d071d: main_task at /home/gus/esp/32/idf/components/{IDF_TARGET_PATH_NAME}/./cpu_start.c:254
 
 To decode each address, IDF Monitor runs the following command in the background::
 
-  xtensa-esp32-elf-addr2line -pfiaC -e build/PROJECT.elf ADDRESS
-
-.. note:: Due to a bug in addr2line, line numbers may be incorrect for some source files. However, the function name is always correct.
+  xtensa-{IDF_TARGET_TOOLCHAIN_NAME}-elf-addr2line -pfiaC -e build/PROJECT.elf ADDRESS
 
 
 Launching GDB with GDBStub
@@ -103,19 +103,19 @@ By default, if esp-idf crashes, the panic handler prints relevant registers and 
 
 Optionally, the panic handler can be configured to run GDBStub, the tool which can communicate with  GDB_ project debugger. GDBStub allows to read memory, examine call stack frames and variables, etc. It is not as versatile as JTAG debugging, but this method does not require any special hardware.
 
-To enable GDBStub, run ``make menuconfig`` (for make) or ``idf.py menuconfig`` (for cmake) and set :ref:`CONFIG_ESP32_PANIC` to ``Invoke GDBStub``.
+To enable GDBStub, open the project configuration menu (``idf.py menuconfig``) and set :ref:`CONFIG_ESP_SYSTEM_PANIC` to ``Invoke GDBStub``.
 
 In this case, if the panic handler is triggered, as soon as IDF Monitor sees that GDBStub has loaded, it automatically pauses serial monitoring and runs GDB with necessary arguments. After GDB exits, the board is reset via the RTS serial line. If this line is not connected, please reset the board manually by pressing its Reset button.
 
 In the background, IDF Monitor runs the following command::
 
-  xtensa-esp32-elf-gdb -ex "set serial baud BAUD" -ex "target remote PORT" -ex interrupt build/PROJECT.elf
+  xtensa-{IDF_TARGET_TOOLCHAIN_NAME}-elf-gdb -ex "set serial baud BAUD" -ex "target remote PORT" -ex interrupt build/PROJECT.elf :idf_target:`Hello NAME chip`
 
 
 Output Filtering
 ~~~~~~~~~~~~~~~~
 
-IDF monitor can be invoked as ``make monitor PRINT_FILTER=""`` (for make) or ``idf.py monitor PRINT_FILTER=""`` (for cmake), where ``PRINT_FILTER`` is the parameter for output filtering. The default value is an empty string, which means that everything is printed.
+IDF monitor can be invoked as ``idf.py monitor --print-filter="xyz"``, where ``--print-filter`` is the parameter for output filtering. The default value is an empty string, which means that everything is printed.
 
 Restrictions on what to print can be specified as a series of ``<tag>:<log_level>`` items where ``<tag>`` is the tag string and ``<log_level>`` is a character from the set ``{N, E, W, I, D, V, *}`` referring to a level for :doc:`logging <../../api-reference/system/log>`.
 
@@ -128,7 +128,7 @@ For example, ``PRINT_FILTER="tag1:W"`` matches and prints only the outputs writt
    which can be useful for adjusting the filtering options without
    recompiling the application.
 
-Your app tags must not contain spaces, asterisks ``*``, 
+Your app tags must not contain spaces, asterisks ``*``,
 and semicolons ``:`` to be compatible with the output filtering feature.
 
 If the last line of the output in your app is not followed by a carriage return, the output filtering might get confused, i.e., the monitor starts to print the line and later finds out that the line should not have been written. This is a known issue and can be avoided by always adding a carriage return (especially when no output follows immediately afterwards).
@@ -186,18 +186,6 @@ The captured output for the filtering options ``PRINT_FILTER="wifi esp_image:E l
     entry 0x40078d4c
     I (569) heap_init: Initializing. RAM available for dynamic allocation:
     D (309) light_driver: [light_init, 74]:status: 1, mode: 2
-
-
-Simple Monitor
-==============
-
-The earlier versions of ESP-IDF used the pySerial_ command line program miniterm_ as a serial console program.
-
-.. note:: This target only works in a build system based on GNU Make and cannot work in a CMake-based system.
-
-This program can still be run with the command ``make simple_monitor``.
-
-IDF Monitor is based on miniterm and shares the same basic keyboard shortcuts.
 
 
 Known Issues with IDF Monitor

@@ -14,7 +14,7 @@
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "esp_event.h"
-#include "tcpip_adapter.h"
+#include "esp_netif.h"
 #include "protocol_examples_common.h"
 
 #include "freertos/FreeRTOS.h"
@@ -35,6 +35,8 @@ extern const uint8_t client_cert_pem_start[] asm("_binary_client_crt_start");
 extern const uint8_t client_cert_pem_end[] asm("_binary_client_crt_end");
 extern const uint8_t client_key_pem_start[] asm("_binary_client_key_start");
 extern const uint8_t client_key_pem_end[] asm("_binary_client_key_end");
+extern const uint8_t server_cert_pem_start[] asm("_binary_mosquitto_org_crt_start");
+extern const uint8_t server_cert_pem_end[] asm("_binary_mosquitto_org_crt_end");
 
 static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 {
@@ -90,6 +92,7 @@ static void mqtt_app_start(void)
         .event_handle = mqtt_event_handler,
         .client_cert_pem = (const char *)client_cert_pem_start,
         .client_key_pem = (const char *)client_key_pem_start,
+        .cert_pem = (const char *)server_cert_pem_start,
     };
 
     ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
@@ -97,7 +100,7 @@ static void mqtt_app_start(void)
     esp_mqtt_client_start(client);
 }
 
-void app_main()
+void app_main(void)
 {
     ESP_LOGI(TAG, "[APP] Startup..");
     ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
@@ -111,7 +114,7 @@ void app_main()
     esp_log_level_set("OUTBOX", ESP_LOG_VERBOSE);
 
     ESP_ERROR_CHECK(nvs_flash_init());
-    tcpip_adapter_init();
+    ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     /* This helper function configures Wi-Fi or Ethernet, as selected in menuconfig.

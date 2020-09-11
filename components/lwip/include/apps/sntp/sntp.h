@@ -15,6 +15,10 @@
 #ifndef __SNTP_H__
 #define __SNTP_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * The time update takes place in the sntp_sync_time() function.
  * The user has the ability to redefine this function in order
@@ -115,5 +119,36 @@ void sntp_set_sync_status(sntp_sync_status_t sync_status);
  * @param callback a callback function
  */
 void sntp_set_time_sync_notification_cb(sntp_sync_time_cb_t callback);
+
+/**
+ * @brief Set the sync interval of SNTP operation
+ *
+ * Note: SNTPv4 RFC 4330 enforces a minimum sync interval of 15 seconds.
+ * This sync interval will be used in the next attempt update time throught SNTP.
+ * To apply the new sync interval call the sntp_restart() function,
+ * otherwise, it will be applied after the last interval expired.
+ *
+ * @param interval_ms   The sync interval in ms. It cannot be lower than 15 seconds, otherwise 15 seconds will be set.
+ */
+void sntp_set_sync_interval(uint32_t interval_ms);
+
+/**
+ * @brief Get the sync interval of SNTP operation
+ *
+ * @return  the sync interval
+ */
+uint32_t sntp_get_sync_interval(void);
+
+/**
+ * @brief Restart SNTP
+ *
+ * @return True  - Restart
+ *         False - SNTP was not initialized yet
+ */
+bool sntp_restart(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // __SNTP_H__

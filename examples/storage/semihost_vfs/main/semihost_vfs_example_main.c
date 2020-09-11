@@ -39,7 +39,7 @@ void app_main(void)
         return;
     }
     // Increase file buffer to perform data transfers using larger chunks.
-    // Every read/write triggers breakpoint, so transfering of small chunks is quite inefficient.
+    // Every read/write triggers breakpoint, so transferring of small chunks is quite inefficient.
     setvbuf(fout, (char *)s_buf, _IOFBF, sizeof(s_buf));
 
     // this will be printed to the file on host
@@ -52,7 +52,7 @@ void app_main(void)
     fflush(fout); // ensure that all data are sent to the host file
     // ftell can also be used, get file size before closing it in `freopen`
     int count = ftell(fout);
-    stdout = freopen("/dev/uart/" STRINGIFY(CONFIG_CONSOLE_UART_NUM), "w", fout);
+    stdout = freopen("/dev/uart/" STRINGIFY(CONFIG_ESP_CONSOLE_UART_NUM), "w", fout);
     if (stdout == NULL) {
         ESP_LOGE(TAG, "Failed to reopen semihosted stdout (%d)!", errno);
         return;

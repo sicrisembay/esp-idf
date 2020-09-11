@@ -111,7 +111,7 @@ esp_err_t IRAM_ATTR esp_pm_lock_acquire(esp_pm_lock_handle_t handle)
         return ESP_ERR_INVALID_ARG;
     }
 
-    portENTER_CRITICAL(&handle->spinlock);
+    portENTER_CRITICAL_SAFE(&handle->spinlock);
     if (handle->count++ == 0) {
         pm_time_t now = 0;
 #ifdef WITH_PROFILING
@@ -123,7 +123,7 @@ esp_err_t IRAM_ATTR esp_pm_lock_acquire(esp_pm_lock_handle_t handle)
         handle->times_taken++;
 #endif
     }
-    portEXIT_CRITICAL(&handle->spinlock);
+    portEXIT_CRITICAL_SAFE(&handle->spinlock);
     return ESP_OK;
 }
 
@@ -137,7 +137,7 @@ esp_err_t IRAM_ATTR esp_pm_lock_release(esp_pm_lock_handle_t handle)
         return ESP_ERR_INVALID_ARG;
     }
     esp_err_t ret = ESP_OK;
-    portENTER_CRITICAL(&handle->spinlock);
+    portENTER_CRITICAL_SAFE(&handle->spinlock);
     if (handle->count == 0) {
         ret = ESP_ERR_INVALID_STATE;
         goto out;
@@ -151,10 +151,9 @@ esp_err_t IRAM_ATTR esp_pm_lock_release(esp_pm_lock_handle_t handle)
         esp_pm_impl_switch_mode(handle->mode, MODE_UNLOCK, now);
     }
 out:
-    portEXIT_CRITICAL(&handle->spinlock);
+    portEXIT_CRITICAL_SAFE(&handle->spinlock);
     return ret;
 }
-
 
 esp_err_t esp_pm_dump_locks(FILE* stream)
 {
@@ -174,26 +173,35 @@ esp_err_t esp_pm_dump_locks(FILE* stream)
 
     fprintf(stream, "Lock stats:\n");
     esp_pm_lock_t* it;
+    char line[64];
     SLIST_FOREACH(it, &s_list, next) {
+        char *buf = line;
+        size_t len = sizeof(line) - 1;
+        line[len] = 0;
+        size_t cb;
+
         portENTER_CRITICAL(&it->spinlock);
         if (it->name == NULL) {
-            fprintf(stream, "lock@%p ", it);
+            cb = snprintf(buf, len, "lock@%p ", it);
         } else {
-            fprintf(stream, "%-15s ", it->name);
+            cb = snprintf(buf, len, "%-15s ", it->name);
         }
+        buf += cb;
+        len -= cb;
 #ifdef WITH_PROFILING
         pm_time_t time_held = it->time_held;
         if (it->count > 0) {
             time_held += cur_time - it->last_taken;
         }
-        fprintf(stream, "%10s  %3d  %3d  %9d  %9lld  %3lld%%\n",
+        snprintf(buf, len, "%10s  %3d  %3d  %9d  %9lld  %3lld%%\n",
                 s_lock_type_names[it->type], it->arg,
                 it->count, it->times_taken, time_held,
                 (time_held + cur_time_d100 - 1) / cur_time_d100);
 #else
-        fprintf(stream, "%10s  %3d  %3d\n", s_lock_type_names[it->type], it->arg, it->count);
+        snprintf(buf, len, "%10s  %3d  %3d\n", s_lock_type_names[it->type], it->arg, it->count);
 #endif // WITH_PROFILING
         portEXIT_CRITICAL(&it->spinlock);
+        fputs(line, stream);
     }
     _lock_release(&s_list_lock);
 #ifdef WITH_PROFILING
@@ -201,5 +209,3 @@ esp_err_t esp_pm_dump_locks(FILE* stream)
 #endif
     return ESP_OK;
 }
-
-

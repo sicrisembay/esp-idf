@@ -15,9 +15,9 @@ SECTIONS
     *rtc_wake_stub*.*(.literal .text .literal.* .text.*)
     _rtc_text_end = ABSOLUTE(.);
   } > rtc_iram_seg
-  
+
   /*
-    This section is required to skip rtc.text area because rtc_iram_seg and 
+    This section is required to skip rtc.text area because rtc_iram_seg and
     rtc_data_seg are reflect the same address space on different buses.
   */
   .rtc.dummy :
@@ -28,16 +28,22 @@ SECTIONS
     _rtc_dummy_end = ABSOLUTE(.);
   } > rtc_data_seg
 
-  /* This section located in RTC FAST Memory area. 
-     It holds data marked with RTC_FAST_ATTR attribute. 
+  /* This section located in RTC FAST Memory area.
+     It holds data marked with RTC_FAST_ATTR attribute.
      See the file "esp_attr.h" for more information.
   */
   .rtc.force_fast :
   {
     . = ALIGN(4);
     _rtc_force_fast_start = ABSOLUTE(.);
+    
+    _coredump_rtc_fast_start = ABSOLUTE(.);
+    mapping[rtc_fast_coredump]
+    _coredump_rtc_fast_end = ABSOLUTE(.);
+    
     *(.rtc.force_fast .rtc.force_fast.*)
     . = ALIGN(4) ;
+
     _rtc_force_fast_end = ABSOLUTE(.);
   } > rtc_data_seg
 
@@ -45,17 +51,24 @@ SECTIONS
      data/rodata, including from any source file
      named rtc_wake_stub*.c and the data marked with
      RTC_DATA_ATTR, RTC_RODATA_ATTR attributes.
-     The memory location of the data is dependent on 
+     The memory location of the data is dependent on
      CONFIG_ESP32_RTCDATA_IN_FAST_MEM option.
   */
   .rtc.data :
   {
     _rtc_data_start = ABSOLUTE(.);
 
-    mapping[rtc_data]
+    /* coredump mapping */
+    _coredump_rtc_start = ABSOLUTE(.);
+    mapping[rtc_coredump]
+    _coredump_rtc_end = ABSOLUTE(.);
 
+    /* should be placed after coredump mapping */
+    mapping[rtc_data]
+    
     *rtc_wake_stub*.*(.data .rodata .data.* .rodata.* .bss .bss.*)
     _rtc_data_end = ABSOLUTE(.);
+    
   } > rtc_data_location
 
   /* RTC bss, from any source file named rtc_wake_stub*.c */
@@ -70,11 +83,11 @@ SECTIONS
     _rtc_bss_end = ABSOLUTE(.);
   } > rtc_data_location
 
-  /* This section holds data that should not be initialized at power up 
+  /* This section holds data that should not be initialized at power up
      and will be retained during deep sleep.
      User data marked with RTC_NOINIT_ATTR will be placed
-     into this section. See the file "esp_attr.h" for more information. 
-	 The memory location of the data is dependent on 
+     into this section. See the file "esp_attr.h" for more information.
+	 The memory location of the data is dependent on
      CONFIG_ESP32_RTCDATA_IN_FAST_MEM option.
   */
   .rtc_noinit (NOLOAD):
@@ -86,8 +99,8 @@ SECTIONS
     _rtc_noinit_end = ABSOLUTE(.);
   } > rtc_data_location
 
-  /* This section located in RTC SLOW Memory area. 
-     It holds data marked with RTC_SLOW_ATTR attribute. 
+  /* This section located in RTC SLOW Memory area.
+     It holds data marked with RTC_SLOW_ATTR attribute.
      See the file "esp_attr.h" for more information.
   */
   .rtc.force_slow :
@@ -100,17 +113,17 @@ SECTIONS
   } > rtc_slow_seg
 
   /* Get size of rtc slow data based on rtc_data_location alias */
-  _rtc_slow_length = (ORIGIN(rtc_slow_seg) == ORIGIN(rtc_data_location)) 
-                        ? (_rtc_force_slow_end - _rtc_data_start) 
+  _rtc_slow_length = (ORIGIN(rtc_slow_seg) == ORIGIN(rtc_data_location))
+                        ? (_rtc_force_slow_end - _rtc_data_start)
                         : (_rtc_force_slow_end - _rtc_force_slow_start);
 
-  _rtc_fast_length = (ORIGIN(rtc_slow_seg) == ORIGIN(rtc_data_location)) 
-                        ? (_rtc_force_fast_end - _rtc_fast_start) 
+  _rtc_fast_length = (ORIGIN(rtc_slow_seg) == ORIGIN(rtc_data_location))
+                        ? (_rtc_force_fast_end - _rtc_fast_start)
                         : (_rtc_noinit_end - _rtc_fast_start);
-  
+
   ASSERT((_rtc_slow_length <= LENGTH(rtc_slow_seg)),
           "RTC_SLOW segment data does not fit.")
-          
+
   ASSERT((_rtc_fast_length <= LENGTH(rtc_data_seg)),
           "RTC_FAST segment data does not fit.")
 
@@ -142,6 +155,7 @@ SECTIONS
     . = 0x3C0;
     KEEP(*(.DoubleExceptionVector.text));
     . = 0x400;
+    _invalid_pc_placeholder = ABSOLUTE(.);
     *(.*Vector.literal)
 
     *(.UserEnter.literal);
@@ -150,6 +164,7 @@ SECTIONS
     *(.entry.text)
     *(.init.literal)
     *(.init)
+
     _init_end = ABSOLUTE(.);
   } > iram0_0_seg
 
@@ -160,12 +175,7 @@ SECTIONS
 
     mapping[iram0_text]
 
-    _iram_text_end = ABSOLUTE(.);
-    _iram_end = ABSOLUTE(.);
   } > iram0_0_seg
-
-  ASSERT(((_iram_text_end - ORIGIN(iram0_0_seg)) <= LENGTH(iram0_0_seg)),
-          "IRAM0 segment data does not fit.")
 
   .dram0.data :
   {
@@ -178,6 +188,10 @@ SECTIONS
     *libbtdm_app.a:(.data .data.*)
     . = ALIGN (4);
     _btdm_data_end = ABSOLUTE(.);
+    _nimble_data_start = ABSOLUTE(.);
+    *libnimble.a:(.data .data.*)
+    . = ALIGN (4);
+    _nimble_data_end = ABSOLUTE(.);
     *(.gnu.linkonce.d.*)
     *(.data1)
     *(.sdata)
@@ -187,6 +201,16 @@ SECTIONS
     *(.sdata2.*)
     *(.gnu.linkonce.s2.*)
     *(.jcr)
+
+    /* coredump mapping */
+    _coredump_dram_start = ABSOLUTE(.);
+    mapping[dram_coredump]
+    _coredump_dram_end = ABSOLUTE(.);
+    
+    /* should be placed after coredump mapping */
+    _esp_system_init_fn_array_start = ABSOLUTE(.);
+    KEEP (*(SORT(.esp_system_init_fn) SORT(.esp_system_init_fn.*)))
+    _esp_system_init_fn_array_end = ABSOLUTE(.);
 
     mapping[dram0_data]
 
@@ -203,7 +227,7 @@ SECTIONS
   {
     . = ALIGN(4);
     _noinit_start = ABSOLUTE(.);
-    *(.noinit .noinit.*) 
+    *(.noinit .noinit.*)
     . = ALIGN(4) ;
     _noinit_end = ABSOLUTE(.);
   } > dram0_0_seg
@@ -222,6 +246,10 @@ SECTIONS
     *libbtdm_app.a:(.bss .bss.* COMMON)
     . = ALIGN (4);
     _btdm_bss_end = ABSOLUTE(.);
+    _nimble_bss_start = ABSOLUTE(.);
+    *libnimble.a:(.bss .bss.* COMMON)
+    . = ALIGN (4);
+    _nimble_bss_end = ABSOLUTE(.);
 
     mapping[dram0_bss]
 
@@ -239,14 +267,13 @@ SECTIONS
 
     . = ALIGN (8);
     _bss_end = ABSOLUTE(.);
-    /* The heap starts right after end of this section */
-    _heap_start = ABSOLUTE(.);
   } > dram0_0_seg
 
   ASSERT(((_bss_end - ORIGIN(dram0_0_seg)) <= LENGTH(dram0_0_seg)),
           "DRAM segment data does not fit.")
-          
-  .flash.rodata :
+
+  /* When modifying the alignment, update tls_section_alignment in pxPortInitialiseStack */
+  .flash.rodata : ALIGN(0x10)
   {
     _rodata_start = ABSOLUTE(.);
 
@@ -254,6 +281,7 @@ SECTIONS
     *(.rodata_custom_desc .rodata_custom_desc.*) /* Should be the second. Custom app version info. DO NOT PUT ANYTHING BEFORE IT! */
 
     mapping[flash_rodata]
+
 
     *(.irom1.text) /* catch stray ICACHE_RODATA_ATTR */
     *(.gnu.linkonce.r.*)
@@ -267,13 +295,14 @@ SECTIONS
     __eh_frame = ABSOLUTE(.);
     KEEP(*(.eh_frame))
     . = (. + 7) & ~ 3;
-    /*  C++ constructor and destructor tables, properly ordered:  */
+    /*  C++ constructor and destructor tables
+
+        Make a point of not including anything from crtbegin.o or crtend.o, as IDF doesn't use toolchain crt
+      */
     __init_array_start = ABSOLUTE(.);
-    KEEP (*crtbegin.*(.ctors))
-    KEEP (*(EXCLUDE_FILE (*crtend.*) .ctors))
-    KEEP (*(SORT(.ctors.*)))
-    KEEP (*(.ctors))
+    KEEP (*(EXCLUDE_FILE (*crtend.* *crtbegin.*) .ctors SORT(.ctors.*)))
     __init_array_end = ABSOLUTE(.);
+
     KEEP (*crtbegin.*(.dtors))
     KEEP (*(EXCLUDE_FILE (*crtend.*) .dtors))
     KEEP (*(SORT(.dtors.*)))
@@ -306,7 +335,7 @@ SECTIONS
     *(.tbss.*)
     _thread_local_end = ABSOLUTE(.);
     . = ALIGN(4);
-  } >drom0_0_seg
+  } >default_rodata_seg
 
   .flash.text :
   {
@@ -328,5 +357,53 @@ SECTIONS
        the flash.text segment.
     */
     _flash_cache_start = ABSOLUTE(0);
-  } >iram0_2_seg
+  } >default_code_seg
+
+  /* Marks the end of IRAM code segment */
+  .iram0.text_end (NOLOAD) :
+  {
+    . = ALIGN (4);
+    _iram_text_end = ABSOLUTE(.);
+  } > iram0_0_seg
+
+  .iram0.data :
+  {
+    . = ALIGN(4);
+    _iram_data_start = ABSOLUTE(.);
+
+    /* coredump mapping */
+    _coredump_iram_start = ABSOLUTE(.);
+    mapping[iram_coredump]
+    _coredump_iram_end = ABSOLUTE(.);
+    
+    /* should be placed after coredump mapping */
+    mapping[iram0_data]
+
+    _iram_data_end = ABSOLUTE(.);
+  } > iram0_0_seg
+
+  .iram0.bss (NOLOAD) :
+  {
+    . = ALIGN(4);
+    _iram_bss_start = ABSOLUTE(.);
+
+    mapping[iram0_bss]
+
+    _iram_bss_end = ABSOLUTE(.);
+    . = ALIGN(4);
+    _iram_end = ABSOLUTE(.);
+   } > iram0_0_seg
+
+  /* Marks the end of data, bss and possibly rodata  */
+  .dram0.heap_start (NOLOAD) :
+  {
+    . = ALIGN (8);
+    _heap_start = ABSOLUTE(.);
+  } > dram0_0_seg
 }
+
+ASSERT(((_iram_end - ORIGIN(iram0_0_seg)) <= LENGTH(iram0_0_seg)),
+          "IRAM0 segment data does not fit.")
+
+ASSERT(((_heap_start - ORIGIN(dram0_0_seg)) <= LENGTH(dram0_0_seg)),
+          "DRAM segment data does not fit.")

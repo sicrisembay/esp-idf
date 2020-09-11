@@ -17,7 +17,7 @@
 #include <assert.h>
 #include "esp_efuse_table.h"
 
-// md5_digest_table 544d434da010ce22f7db1b14d38e1d66
+// md5_digest_table 11b691b6fa8546a3862a7a876be5f758
 // This file was generated from the file esp_efuse_table.csv. DO NOT CHANGE THIS FILE MANUALLY.
 // If you want to change some fields, you need to change esp_efuse_table.csv file
 // then run `efuse_common_table` or `efuse_custom_table` command it will generate this file.
@@ -87,20 +87,24 @@ static const esp_efuse_desc_t DISABLE_DL_CACHE[] = {
     {EFUSE_BLK0, 201, 1}, 	 // Flash encrypt. Disable UART bootloader MMU cache. EFUSE_DISABLE_DL_CACHE.,
 };
 
-static const esp_efuse_desc_t DISABLE_JTAG[] = {
-    {EFUSE_BLK0, 198, 1}, 	 // Flash encrypt. Disable JTAG. EFUSE_RD_DISABLE_JTAG.,
-};
-
-static const esp_efuse_desc_t CONSOLE_DEBUG_DISABLE[] = {
-    {EFUSE_BLK0, 194, 1}, 	 // Flash encrypt. Disable ROM BASIC interpreter fallback. EFUSE_RD_CONSOLE_DEBUG_DISABLE.,
-};
-
 static const esp_efuse_desc_t FLASH_CRYPT_CNT[] = {
     {EFUSE_BLK0, 20, 7}, 	 // Flash encrypt. Flash encryption is enabled if this field has an odd number of bits set. EFUSE_FLASH_CRYPT_CNT.,
 };
 
+static const esp_efuse_desc_t DISABLE_JTAG[] = {
+    {EFUSE_BLK0, 198, 1}, 	 // Disable JTAG. EFUSE_RD_DISABLE_JTAG.,
+};
+
+static const esp_efuse_desc_t CONSOLE_DEBUG_DISABLE[] = {
+    {EFUSE_BLK0, 194, 1}, 	 // Disable ROM BASIC interpreter fallback. EFUSE_RD_CONSOLE_DEBUG_DISABLE.,
+};
+
+static const esp_efuse_desc_t UART_DOWNLOAD_DIS[] = {
+    {EFUSE_BLK0, 27, 1}, 	 // Disable UART download mode. Valid for ESP32 V3 and newer,
+};
+
 static const esp_efuse_desc_t WR_DIS_FLASH_CRYPT_CNT[] = {
-    {EFUSE_BLK0, 2, 1}, 	 // Flash encrypt. Write protection FLASH_CRYPT_CNT. EFUSE_WR_DIS_FLASH_CRYPT_CNT,
+    {EFUSE_BLK0, 2, 1}, 	 // Flash encrypt. Write protection FLASH_CRYPT_CNT,
 };
 
 static const esp_efuse_desc_t WR_DIS_BLK1[] = {
@@ -149,6 +153,10 @@ static const esp_efuse_desc_t CHIP_CPU_FREQ_RATED[] = {
 
 static const esp_efuse_desc_t CHIP_VER_REV1[] = {
     {EFUSE_BLK0, 111, 1}, 	 // EFUSE_RD_CHIP_VER_REV1,
+};
+
+static const esp_efuse_desc_t CHIP_VER_REV2[] = {
+    {EFUSE_BLK0, 180, 1}, 	 // EFUSE_RD_CHIP_VER_REV2,
 };
 
 static const esp_efuse_desc_t XPD_SDIO_REG[] = {
@@ -256,23 +264,28 @@ const esp_efuse_desc_t* ESP_EFUSE_DISABLE_DL_CACHE[] = {
     NULL
 };
 
-const esp_efuse_desc_t* ESP_EFUSE_DISABLE_JTAG[] = {
-    &DISABLE_JTAG[0],    		// Flash encrypt. Disable JTAG. EFUSE_RD_DISABLE_JTAG.
-    NULL
-};
-
-const esp_efuse_desc_t* ESP_EFUSE_CONSOLE_DEBUG_DISABLE[] = {
-    &CONSOLE_DEBUG_DISABLE[0],    		// Flash encrypt. Disable ROM BASIC interpreter fallback. EFUSE_RD_CONSOLE_DEBUG_DISABLE.
-    NULL
-};
-
 const esp_efuse_desc_t* ESP_EFUSE_FLASH_CRYPT_CNT[] = {
     &FLASH_CRYPT_CNT[0],    		// Flash encrypt. Flash encryption is enabled if this field has an odd number of bits set. EFUSE_FLASH_CRYPT_CNT.
     NULL
 };
 
+const esp_efuse_desc_t* ESP_EFUSE_DISABLE_JTAG[] = {
+    &DISABLE_JTAG[0],    		// Disable JTAG. EFUSE_RD_DISABLE_JTAG.
+    NULL
+};
+
+const esp_efuse_desc_t* ESP_EFUSE_CONSOLE_DEBUG_DISABLE[] = {
+    &CONSOLE_DEBUG_DISABLE[0],    		// Disable ROM BASIC interpreter fallback. EFUSE_RD_CONSOLE_DEBUG_DISABLE.
+    NULL
+};
+
+const esp_efuse_desc_t* ESP_EFUSE_UART_DOWNLOAD_DIS[] = {
+    &UART_DOWNLOAD_DIS[0],    		// Disable UART download mode. Valid for ESP32 V3 and newer
+    NULL
+};
+
 const esp_efuse_desc_t* ESP_EFUSE_WR_DIS_FLASH_CRYPT_CNT[] = {
-    &WR_DIS_FLASH_CRYPT_CNT[0],    		// Flash encrypt. Write protection FLASH_CRYPT_CNT. EFUSE_WR_DIS_FLASH_CRYPT_CNT
+    &WR_DIS_FLASH_CRYPT_CNT[0],    		// Flash encrypt. Write protection FLASH_CRYPT_CNT
     NULL
 };
 
@@ -333,6 +346,11 @@ const esp_efuse_desc_t* ESP_EFUSE_CHIP_CPU_FREQ_RATED[] = {
 
 const esp_efuse_desc_t* ESP_EFUSE_CHIP_VER_REV1[] = {
     &CHIP_VER_REV1[0],    		// EFUSE_RD_CHIP_VER_REV1
+    NULL
+};
+
+const esp_efuse_desc_t* ESP_EFUSE_CHIP_VER_REV2[] = {
+    &CHIP_VER_REV2[0],    		// EFUSE_RD_CHIP_VER_REV2
     NULL
 };
 

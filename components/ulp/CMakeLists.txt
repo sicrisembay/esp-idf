@@ -1,7 +1,9 @@
-set(COMPONENT_SRCS "ulp.c"
-                   "ulp_macro.c")
-set(COMPONENT_ADD_INCLUDEDIRS "include")
+set(srcs "ulp.c"
+        "ulp_macro.c")
 
-set(COMPONENT_REQUIRES)
+if(CONFIG_ESP32S2_ULP_COPROC_RISCV)
+        list(APPEND srcs "ulp_riscv.c")
+endif()
 
-register_component()
+idf_component_register(SRCS ${srcs}
+                    INCLUDE_DIRS include)

@@ -107,7 +107,7 @@ class FragmentFile():
             try:
                 parse_ctx.fragment.set_key_value(parse_ctx.key, stmts)
             except Exception as e:
-                raise ParseFatalException(pstr, loc, "unable to add key '%s'; %s" % (parse_ctx.key, e.message))
+                raise ParseFatalException(pstr, loc, "unable to add key '%s'; %s" % (parse_ctx.key, str(e)))
             return None
 
         key = Word(alphanums + "_") + Suppress(":")
@@ -139,7 +139,7 @@ class FragmentFile():
             except KeyError:
                 raise ParseFatalException(pstr, loc, "key '%s' is not supported by fragment" % key)
             except Exception as e:
-                raise ParseFatalException(pstr, loc, "unable to parse key '%s'; %s" % (key, e.message))
+                raise ParseFatalException(pstr, loc, "unable to parse key '%s'; %s" % (key, str(e)))
 
             key_stmt << (conditional | Group(key_grammar).setResultsName("value"))
 
@@ -276,12 +276,15 @@ class Mapping(Fragment):
 
     MAPPING_ALL_OBJECTS = "*"
 
+    def __init__(self):
+        Fragment.__init__(self)
+        self.entries = set()
+        self.deprecated = False
+
     def set_key_value(self, key, parse_results):
         if key == "archive":
             self.archive = parse_results[0]["archive"]
         elif key == "entries":
-            self.entries = set()
-
             for result in parse_results:
                 obj = None
                 symbol = None
@@ -321,7 +324,7 @@ class Mapping(Fragment):
 
         grammars = {
             "archive": KeyGrammar(Fragment.ENTITY.setResultsName("archive"), 1, 1, True),
-            "entries": KeyGrammar(entry, 1, None, True)
+            "entries": KeyGrammar(entry, 0, None, True)
         }
 
         return grammars
@@ -380,6 +383,7 @@ class DeprecatedMapping():
             fragment = Mapping()
             fragment.archive = toks[0].archive
             fragment.name = re.sub(r"[^0-9a-zA-Z]+", "_", fragment.archive)
+            fragment.deprecated = True
 
             fragment.entries = set()
             condition_true = False

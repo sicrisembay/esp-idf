@@ -322,8 +322,6 @@ class GenerationModel:
         return scheme_dictionary
 
     def generate_rules(self, sections_infos):
-        placement_rules = collections.defaultdict(list)
-
         scheme_dictionary = self._build_scheme_dictionary()
 
         # Generate default rules
@@ -334,8 +332,8 @@ class GenerationModel:
 
         # Generate rules based on mapping fragments
         for mapping in self.mappings.values():
-            mapping_rules = list()
             archive = mapping.archive
+            mapping_rules = all_mapping_rules[archive]
             for (obj, symbol, scheme_name) in mapping.entries:
                 try:
                     if not (obj == Mapping.MAPPING_ALL_OBJECTS and symbol is None and
@@ -345,8 +343,6 @@ class GenerationModel:
                     message = GenerationException.UNDEFINED_REFERENCE + " to scheme '" + scheme_name + "'."
                     raise GenerationException(message, mapping)
 
-            all_mapping_rules[mapping.name] = mapping_rules
-
         # Detect rule conflicts
         for mapping_rules in all_mapping_rules.items():
             self._detect_conflicts(mapping_rules)
@@ -355,14 +351,19 @@ class GenerationModel:
         for mapping_rules in all_mapping_rules.values():
             self._create_exclusions(mapping_rules, default_rules, sections_infos)
 
+        placement_rules = collections.defaultdict(list)
+
         # Add the default rules grouped by target
         for default_rule in default_rules:
             existing_rules = placement_rules[default_rule.target]
             if default_rule.get_section_names():
                 existing_rules.append(default_rule)
 
-        for mapping_rules in all_mapping_rules.values():
+        archives = sorted(all_mapping_rules.keys())
+
+        for archive in archives:
             # Add the mapping rules grouped by target
+            mapping_rules = sorted(all_mapping_rules[archive], key=lambda m: (m.specificity, str(m)))
             for mapping_rule in mapping_rules:
                 existing_rules = placement_rules[mapping_rule.target]
                 if mapping_rule.get_section_names():
@@ -453,21 +454,24 @@ class GenerationModel:
         for fragment in fragment_file.fragments:
             dict_to_append_to = None
 
-            if isinstance(fragment, Scheme):
-                dict_to_append_to = self.schemes
-            elif isinstance(fragment, Sections):
-                dict_to_append_to = self.sections
+            if isinstance(fragment, Mapping) and fragment.deprecated and fragment.name in self.mappings.keys():
+                self.mappings[fragment.name].entries |= fragment.entries
             else:
-                dict_to_append_to = self.mappings
+                if isinstance(fragment, Scheme):
+                    dict_to_append_to = self.schemes
+                elif isinstance(fragment, Sections):
+                    dict_to_append_to = self.sections
+                else:
+                    dict_to_append_to = self.mappings
 
-            # Raise exception when the fragment of the same type is already in the stored fragments
-            if fragment.name in dict_to_append_to.keys():
-                stored = dict_to_append_to[fragment.name].path
-                new = fragment.path
-                message = "Duplicate definition of fragment '%s' found in %s and %s." % (fragment.name, stored, new)
-                raise GenerationException(message)
+                # Raise exception when the fragment of the same type is already in the stored fragments
+                if fragment.name in dict_to_append_to.keys():
+                    stored = dict_to_append_to[fragment.name].path
+                    new = fragment.path
+                    message = "Duplicate definition of fragment '%s' found in %s and %s." % (fragment.name, stored, new)
+                    raise GenerationException(message)
 
-            dict_to_append_to[fragment.name] = fragment
+                dict_to_append_to[fragment.name] = fragment
 
 
 class TemplateModel:
@@ -573,8 +577,8 @@ class SectionsInfo(dict):
     def __init__(self):
         self.sections = dict()
 
-    def add_sections_info(self, sections_info_file):
-        first_line = sections_info_file.readline()
+    def add_sections_info(self, sections_info_dump):
+        first_line = sections_info_dump.readline()
 
         archive_path = (Literal("In archive").suppress() +
                         # trim the last character from archive_path, :
@@ -587,10 +591,10 @@ class SectionsInfo(dict):
         try:
             results = parser.parseString(first_line)
         except ParseException as p:
-            raise ParseException("File " + sections_info_file.name + " is not a valid sections info file. " + p.message)
+            raise ParseException("Parsing sections info for library " + sections_info_dump.name + " failed. " + p.msg)
 
         archive = os.path.basename(results.archive_path)
-        self.sections[archive] = SectionsInfo.__info(sections_info_file.name, sections_info_file.read())
+        self.sections[archive] = SectionsInfo.__info(sections_info_dump.name, sections_info_dump.read())
 
     def _get_infos_from_file(self, info):
         # Object file line: '{object}:  file format elf32-xtensa-le'
@@ -614,7 +618,7 @@ class SectionsInfo(dict):
         try:
             results = parser.parseString(sections_info_text)
         except ParseException as p:
-            raise ParseException("Unable to parse section info file " + info.filename + ". " + p.message)
+            raise ParseException("Unable to parse section info file " + info.filename + ". " + p.msg)
 
         return results
 

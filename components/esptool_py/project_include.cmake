@@ -1,59 +1,38 @@
-if(NOT IDF_BUILD_ARTIFACTS)
-    return()
-endif()
-
 # Set some global esptool.py variables
 #
 # Many of these are read when generating flash_app_args & flash_project_args
-set(ESPTOOLPY ${PYTHON} "${CMAKE_CURRENT_LIST_DIR}/esptool/esptool.py" --chip esp32)
-set(ESPSECUREPY ${PYTHON} "${CMAKE_CURRENT_LIST_DIR}/esptool/espsecure.py")
-set(ESPEFUSEPY ${PYTHON} "${CMAKE_CURRENT_LIST_DIR}/esptool/espefuse.py")
+idf_build_get_property(target IDF_TARGET)
+idf_build_get_property(python PYTHON)
+
+set(ESPTOOLPY ${python} "${CMAKE_CURRENT_LIST_DIR}/esptool/esptool.py" --chip ${target})
+set(ESPSECUREPY ${python} "${CMAKE_CURRENT_LIST_DIR}/esptool/espsecure.py")
+set(ESPEFUSEPY ${python} "${CMAKE_CURRENT_LIST_DIR}/esptool/espefuse.py")
 
 set(ESPFLASHMODE ${CONFIG_ESPTOOLPY_FLASHMODE})
 set(ESPFLASHFREQ ${CONFIG_ESPTOOLPY_FLASHFREQ})
 set(ESPFLASHSIZE ${CONFIG_ESPTOOLPY_FLASHSIZE})
 
-set(ESPTOOLPY_BEFORE "${CONFIG_ESPTOOLPY_BEFORE}")
-set(ESPTOOLPY_AFTER  "${CONFIG_ESPTOOLPY_AFTER}")
-
-if(CONFIG_SECURE_BOOT_ENABLED OR CONFIG_FLASH_ENCRYPTION_ENABLED)
-    # If security enabled then override post flash option
-    set(ESPTOOLPY_AFTER "no_reset")
-endif()
-
-set(ESPTOOLPY_SERIAL "${ESPTOOLPY}"
-    --port "${ESPPORT}"
-    --baud ${ESPBAUD}
-    --before "${ESPTOOLPY_BEFORE}"
-    --after "${ESPTOOLPY_AFTER}"
-    )
-
-if(CONFIG_ESPTOOLPY_COMPRESSED)
-    set(ESPTOOLPY_COMPRESSED_OPT -z)
-else()
-    set(ESPTOOLPY_COMPRESSED_OPT -u)
-endif()
-
-set(ESPTOOLPY_ELF2IMAGE_FLASH_OPTIONS
+set(ESPTOOLPY_FLASH_OPTIONS
     --flash_mode ${ESPFLASHMODE}
     --flash_freq ${ESPFLASHFREQ}
     --flash_size ${ESPFLASHSIZE}
     )
 
-# String for printing flash command
-string(REPLACE ";" " " ESPTOOLPY_WRITE_FLASH_STR
-    "${ESPTOOLPY} --port (PORT) --baud (BAUD) --before ${ESPTOOLPY_BEFORE} --after ${ESPTOOLPY_AFTER} "
-    "write_flash ${ESPTOOLPY_ELF2IMAGE_FLASH_OPTIONS} ${ESPTOOLPY_EXTRA_FLASH_OPTIONS} ${ESPTOOLPY_COMPRESSED_OPT}")
-
-if(CONFIG_SECURE_BOOT_ENABLED AND
-    NOT CONFIG_SECURE_BOOT_ALLOW_SHORT_APP_PARTITION AND
-    NOT BOOTLOADER_BUILD)
-    set(ESPTOOLPY_ELF2IMAGE_FLASH_OPTIONS
-        ${ESPTOOLPY_ELF2IMAGE_FLASH_OPTIONS} --secure-pad)
+if(NOT BOOTLOADER_BUILD)
+    set(esptool_elf2image_args --elf-sha256-offset 0xb0)
 endif()
 
-if(NOT BOOTLOADER_BUILD)
-    set(ESPTOOLPY_ELF2IMAGE_OPTIONS --elf-sha256-offset 0xb0)
+if(NOT CONFIG_SECURE_BOOT_ALLOW_SHORT_APP_PARTITION AND
+    NOT BOOTLOADER_BUILD)
+    if(CONFIG_SECURE_SIGNED_APPS_ECDSA_SCHEME)
+        list(APPEND esptool_elf2image_args --secure-pad)
+    elseif(CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME)
+        list(APPEND esptool_elf2image_args --secure-pad-v2)
+    endif()
+endif()
+
+if(CONFIG_ESP32_REV_MIN)
+    list(APPEND esptool_elf2image_args --min-rev ${CONFIG_ESP32_REV_MIN})
 endif()
 
 if(CONFIG_ESPTOOLPY_FLASHSIZE_DETECT)
@@ -62,125 +41,236 @@ if(CONFIG_ESPTOOLPY_FLASHSIZE_DETECT)
     set(ESPFLASHSIZE detect)
 endif()
 
-get_filename_component(IDF_PROJECT_NAME ${IDF_PROJECT_EXECUTABLE} NAME_WE)
-if(CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES AND NOT BOOTLOADER_BUILD)
-    set(unsigned_project_binary "${IDF_PROJECT_NAME}-unsigned.bin")
-else()
-    set(unsigned_project_binary "${IDF_PROJECT_NAME}.bin")
+if(CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME)
+    set(ESPFLASHSIZE keep)
 endif()
+
+idf_build_get_property(build_dir BUILD_DIR)
+
+idf_build_get_property(elf_name EXECUTABLE_NAME GENERATOR_EXPRESSION)
+idf_build_get_property(elf EXECUTABLE GENERATOR_EXPRESSION)
+idf_build_get_property(elf_dir EXECUTABLE_DIR GENERATOR_EXPRESSION)
+
+if(CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES AND NOT BOOTLOADER_BUILD)
+    set(unsigned_project_binary "${elf_name}-unsigned.bin")
+else()
+    set(unsigned_project_binary "${elf_name}.bin")
+endif()
+
+set(PROJECT_BIN "${elf_name}.bin")
 
 #
 # Add 'app.bin' target - generates with elf2image
 #
-add_custom_command(OUTPUT "${IDF_BUILD_ARTIFACTS_DIR}/${unsigned_project_binary}"
-    COMMAND ${ESPTOOLPY} elf2image ${ESPTOOLPY_ELF2IMAGE_FLASH_OPTIONS} ${ESPTOOLPY_ELF2IMAGE_OPTIONS}
-        -o "${IDF_BUILD_ARTIFACTS_DIR}/${unsigned_project_binary}" "${IDF_PROJECT_EXECUTABLE}"
-    DEPENDS ${IDF_PROJECT_EXECUTABLE}
-    VERBATIM
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+if(CONFIG_APP_BUILD_GENERATE_BINARIES)
+    add_custom_command(OUTPUT "${build_dir}/.bin_timestamp"
+        COMMAND ${ESPTOOLPY} elf2image ${ESPTOOLPY_FLASH_OPTIONS} ${esptool_elf2image_args}
+            -o "${build_dir}/${unsigned_project_binary}" "${elf_dir}/${elf}"
+        COMMAND ${CMAKE_COMMAND} -E echo "Generated ${build_dir}/${unsigned_project_binary}"
+        COMMAND ${CMAKE_COMMAND} -E md5sum "${build_dir}/${unsigned_project_binary}" > "${build_dir}/.bin_timestamp"
+        DEPENDS ${elf}
+        VERBATIM
+        WORKING_DIRECTORY ${build_dir}
+        COMMENT "Generating binary image from built executable"
+        )
+    add_custom_target(gen_project_binary DEPENDS "${build_dir}/.bin_timestamp")
+endif()
+
+set_property(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    APPEND PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
+    "${build_dir}/${unsigned_project_binary}"
     )
 
-get_filename_component(IDF_PROJECT_BIN ${IDF_PROJECT_EXECUTABLE} NAME_WE)
-set(IDF_PROJECT_BIN ${IDF_PROJECT_BIN}.bin)
-
-if(NOT BOOTLOADER_BUILD AND
-    CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES)
-
-    # for locally signed secure boot image, add a signing step to get from unsigned app to signed app
-    add_custom_target(gen_unsigned_project_binary ALL DEPENDS "${IDF_BUILD_ARTIFACTS_DIR}/${unsigned_project_binary}")
-    add_custom_command(OUTPUT "${IDF_BUILD_ARTIFACTS_DIR}/${IDF_PROJECT_BIN}"
-        COMMAND ${ESPSECUREPY} sign_data --keyfile ${secure_boot_signing_key}
-            -o "${IDF_BUILD_ARTIFACTS_DIR}/${IDF_PROJECT_BIN}" "${IDF_BUILD_ARTIFACTS_DIR}/${unsigned_project_binary}"
-        DEPENDS gen_unsigned_project_binary
-        VERBATIM
-        )
+if(CONFIG_APP_BUILD_GENERATE_BINARIES)
+    add_custom_target(app ALL DEPENDS gen_project_binary)
 endif()
 
-if(NOT BOOTLOADER_BUILD)
-    add_custom_target(app ALL DEPENDS "${IDF_BUILD_ARTIFACTS_DIR}/${IDF_PROJECT_BIN}")
+if(CONFIG_SECURE_SIGNED_APPS_ECDSA_SCHEME)
+    set(secure_boot_version "1")
+elseif(CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME)
+    set(secure_boot_version "2")
+endif()
+
+if(NOT BOOTLOADER_BUILD AND CONFIG_SECURE_SIGNED_APPS)
+    if(CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES)
+        # for locally signed secure boot image, add a signing step to get from unsigned app to signed app
+        add_custom_command(OUTPUT "${build_dir}/.signed_bin_timestamp"
+            COMMAND ${ESPSECUREPY} sign_data --version ${secure_boot_version} --keyfile ${secure_boot_signing_key}
+                -o "${build_dir}/${PROJECT_BIN}" "${build_dir}/${unsigned_project_binary}"
+            COMMAND ${CMAKE_COMMAND} -E echo "Generated signed binary image ${build_dir}/${PROJECT_BIN}"
+                                    "from ${build_dir}/${unsigned_project_binary}"
+            COMMAND ${CMAKE_COMMAND} -E md5sum "${build_dir}/${PROJECT_BIN}" > "${build_dir}/.signed_bin_timestamp"
+            DEPENDS "${build_dir}/.bin_timestamp"
+            VERBATIM
+            COMMENT "Generating signed binary image"
+            )
+        add_custom_target(gen_signed_project_binary DEPENDS "${build_dir}/.signed_bin_timestamp")
+        add_dependencies(gen_project_binary gen_signed_project_binary)
+
+        set_property(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            APPEND PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
+            "${build_dir}/${PROJECT_BIN}"
+            )
+    else()
+        string(REPLACE ";" " " espsecurepy "${ESPSECUREPY}")
+        add_custom_command(TARGET app POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E echo
+                "App built but not signed. Sign app before flashing"
+            COMMAND ${CMAKE_COMMAND} -E echo
+                "\t${espsecurepy} sign_data --keyfile KEYFILE --version ${secure_boot_version} \
+                ${build_dir}/${PROJECT_BIN}"
+            VERBATIM)
+    endif()
+endif()
+
+add_custom_target(erase_flash
+    COMMAND ${CMAKE_COMMAND}
+    -D IDF_PATH="${idf_path}"
+    -D ESPTOOLPY="${ESPTOOLPY}"
+    -D ESPTOOL_ARGS="erase_flash"
+    -P run_esptool.cmake
+    WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+    USES_TERMINAL
+    )
+
+add_custom_target(monitor
+    COMMAND ${CMAKE_COMMAND}
+    -D IDF_PATH="${idf_path}"
+    -D IDF_MONITOR="${idf_path}/tools/idf_monitor.py"
+    -D ELF_FILE="${elf_dir}/${elf}"
+    -D WORKING_DIRECTORY="${build_dir}"
+    -P run_idf_monitor.cmake
+    WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+    USES_TERMINAL
+    )
+
+set(esptool_flash_main_args "--before=${CONFIG_ESPTOOLPY_BEFORE}")
+
+if(CONFIG_SECURE_BOOT OR CONFIG_SECURE_FLASH_ENC_ENABLED)
+    # If security enabled then override post flash option
+    list(APPEND esptool_flash_main_args "--after=no_reset")
 else()
-    add_custom_target(bootloader ALL DEPENDS "${IDF_BUILD_ARTIFACTS_DIR}/${IDF_PROJECT_BIN}")
+    list(APPEND esptool_flash_main_args "--after=${CONFIG_ESPTOOLPY_AFTER}")
 endif()
 
-if(NOT BOOTLOADER_BUILD AND
-    CONFIG_SECURE_BOOT_ENABLED AND
-    NOT CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES)
-    add_custom_command(TARGET app POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E echo
-            "App built but not signed. Sign app before flashing"
-        COMMAND ${CMAKE_COMMAND} -E echo
-            "\t${ESPSECUREPY} sign_data --keyfile KEYFILE ${IDF_BUILD_ARTIFACTS_DIR}/${IDF_PROJECT_BIN}"
-        VERBATIM)
+if(NOT CONFIG_ESPTOOLPY_WITH_STUB)
+    list(APPEND esptool_flash_main_args "--no-stub")
 endif()
 
-#
-# Add 'flash' target - not all build systems can run this directly
-#
-function(esptool_py_custom_target target_name flasher_filename dependencies)
-    add_custom_target(${target_name} DEPENDS ${dependencies}
+idf_component_set_property(esptool_py FLASH_ARGS "${esptool_flash_main_args}")
+idf_component_set_property(esptool_py FLASH_SUB_ARGS "${ESPTOOLPY_FLASH_OPTIONS}")
+
+function(esptool_py_flash_target_image target_name image_name offset image)
+    idf_build_get_property(build_dir BUILD_DIR)
+    file(RELATIVE_PATH image ${build_dir} ${image})
+
+    set_property(TARGET ${target_name} APPEND PROPERTY FLASH_FILE
+                "\"${offset}\" : \"${image}\"")
+    set_property(TARGET ${target_name} APPEND PROPERTY FLASH_ENTRY
+                "\"${image_name}\" : { \"offset\" : \"${offset}\", \"file\" : \"${image}\" }")
+    set_property(TARGET ${target_name} APPEND PROPERTY IMAGES "${offset} ${image}")
+
+    if(CONFIG_SECURE_FLASH_ENCRYPTION_MODE_DEVELOPMENT)
+        set_property(TARGET encrypted-${target_name} APPEND PROPERTY FLASH_FILE
+                    "\"${offset}\" : \"${image}\"")
+        set_property(TARGET encrypted-${target_name} APPEND PROPERTY FLASH_ENTRY
+                    "\"${image_name}\" : { \"offset\" : \"${offset}\", \"file\" : \"${image}\" }")
+        set_property(TARGET encrypted-${target_name} APPEND PROPERTY IMAGES "${offset} ${image}")
+    endif()
+endfunction()
+
+function(esptool_py_flash_target target_name main_args sub_args)
+    set(single_value OFFSET IMAGE) # template file to use to be able to
+                                        # flash the image individually using esptool
+    cmake_parse_arguments(_ "" "${single_value}" "" "${ARGN}")
+
+    idf_build_get_property(idf_path IDF_PATH)
+    idf_build_get_property(build_dir BUILD_DIR)
+    idf_component_get_property(esptool_py_dir esptool_py COMPONENT_DIR)
+
+    add_custom_target(${target_name}
         COMMAND ${CMAKE_COMMAND}
-        -D IDF_PATH="${IDF_PATH}"
+        -D IDF_PATH="${idf_path}"
         -D ESPTOOLPY="${ESPTOOLPY}"
-        -D ESPTOOL_ARGS="write_flash;@flash_${flasher_filename}_args"
-        -D ESPTOOL_WORKING_DIR="${IDF_BUILD_ARTIFACTS_DIR}"
-        -P run_esptool.cmake
+        -D ESPTOOL_ARGS="${main_args};write_flash;@${target_name}_args"
+        -D WORKING_DIRECTORY="${build_dir}"
+        -P ${esptool_py_dir}/run_esptool.cmake
         WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
         USES_TERMINAL
         )
-endfunction()
 
-esptool_py_custom_target(flash project "app;partition_table;bootloader")
-esptool_py_custom_target(app-flash app "app")
-esptool_py_custom_target(bootloader-flash bootloader "bootloader")
+    set_target_properties(${target_name} PROPERTIES SUB_ARGS "${sub_args}")
 
-add_custom_target(flash_project_args_target)
+    set(flash_args_content "$<JOIN:$<TARGET_PROPERTY:${target_name},SUB_ARGS>, >\n\
+$<JOIN:$<TARGET_PROPERTY:${target_name},IMAGES>,\n>")
 
-# esptool_py_flash_project_args
-#
-# Add file to the flasher args list, to be flashed at a particular offset
-function(esptool_py_flash_project_args entry offset image)
-    set(options FLASH_IN_PROJECT)  # flash the image when flashing the project
-    set(single_value FLASH_FILE_TEMPLATE) # template file to use to be able to
-                                        # flash the image individually using esptool
-    cmake_parse_arguments(flash_entry "${options}" "${single_value}" "" "${ARGN}")
+    file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${target_name}_args.in"
+                CONTENT "${flash_args_content}")
+    file(GENERATE OUTPUT "${build_dir}/${target_name}_args"
+                INPUT "${CMAKE_CURRENT_BINARY_DIR}/${target_name}_args.in")
 
-    get_property(flash_project_entries TARGET flash_project_args_target PROPERTY FLASH_PROJECT_ENTRIES)
+    if(CONFIG_SECURE_FLASH_ENCRYPTION_MODE_DEVELOPMENT)
+        add_custom_target(encrypted-${target_name}
+            COMMAND ${CMAKE_COMMAND}
+            -D IDF_PATH="${idf_path}"
+            -D ESPTOOLPY="${ESPTOOLPY}"
+            -D ESPTOOL_ARGS="${main_args};write_flash;@encrypted_${target_name}_args"
+            -D WORKING_DIRECTORY="${build_dir}"
+            -P ${esptool_py_dir}/run_esptool.cmake
+            WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+            USES_TERMINAL
+            )
 
-    if(${entry} IN_LIST flash_project_entries)
-        message(FATAL_ERROR "entry '${entry}' has already been added to flash project entries")
-    endif()
+        set_target_properties(encrypted-${target_name} PROPERTIES SUB_ARGS "${sub_args};--encrypt")
 
-    list(APPEND flash_project_entries "${entry}")
-    set_property(TARGET flash_project_args_target PROPERTY FLASH_PROJECT_ENTRIES "${flash_project_entries}")
+        set(flash_args_content "$<JOIN:$<TARGET_PROPERTY:encrypted-${target_name},SUB_ARGS>, >\n\
+$<JOIN:$<TARGET_PROPERTY:encrypted-${target_name},IMAGES>,\n>")
 
-    file(RELATIVE_PATH image ${CMAKE_BINARY_DIR} ${image})
-
-    # Generate the standalone flash file to flash the image individually using esptool
-    set(entry_flash_args ${IDF_BUILD_ARTIFACTS_DIR}/flash_${entry}_args)
-    if(NOT flash_entry_FLASH_FILE_TEMPLATE)
-        file(GENERATE OUTPUT ${entry_flash_args} CONTENT "${offset} ${image}")
+        file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/encrypted_${target_name}_args.in"
+                    CONTENT "${flash_args_content}")
+        file(GENERATE OUTPUT "${build_dir}/encrypted_${target_name}_args"
+                    INPUT "${CMAKE_CURRENT_BINARY_DIR}/encrypted_${target_name}_args.in")
     else()
-        configure_file(${flash_entry_FLASH_FILE_TEMPLATE} ${entry_flash_args})
+        fail_target(encrypted-${target_name} "Error: The target encrypted-${target_name} requires"
+                    "CONFIG_SECURE_FLASH_ENCRYPTION_MODE_DEVELOPMENT to be enabled.")
+
     endif()
 
-    set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES ${entry_flash_args})
+endfunction()
 
-    # Generate standalone entries in the flasher args json file
-    get_property(flash_project_args_entry_json TARGET
-                flash_project_args_target PROPERTY FLASH_PROJECT_ARGS_ENTRY_JSON)
-    list(APPEND flash_project_args_entry_json
-                "\"${entry}\" : { \"offset\" : \"${offset}\", \"file\" : \"${image}\" }")
-    set_property(TARGET flash_project_args_target
-                PROPERTY FLASH_PROJECT_ARGS_ENTRY_JSON "${flash_project_args_entry_json}")
 
-    # Generate entries in the flasher args json file
-    if(flash_entry_FLASH_IN_PROJECT)
-        get_property(flash_project_args TARGET flash_project_args_target PROPERTY FLASH_PROJECT_ARGS)
-        list(APPEND flash_project_args "${offset} ${image}")
-        set_property(TARGET flash_project_args_target PROPERTY FLASH_PROJECT_ARGS "${flash_project_args}")
+function(esptool_py_custom_target target_name flasher_filename dependencies)
+    idf_component_get_property(main_args esptool_py FLASH_ARGS)
+    idf_component_get_property(sub_args esptool_py FLASH_SUB_ARGS)
 
-        get_property(flash_project_args_json TARGET flash_project_args_target PROPERTY FLASH_PROJECT_ARGS_JSON)
-        list(APPEND flash_project_args_json "\"${offset}\" : \"${image}\"")
-        set_property(TARGET flash_project_args_target PROPERTY FLASH_PROJECT_ARGS_JSON "${flash_project_args_json}")
+    idf_build_get_property(build_dir BUILD_DIR)
+
+    esptool_py_flash_target(${target_name} "${main_args}" "${sub_args}")
+
+    # Copy the file to flash_xxx_args for compatibility for select target
+    file_generate("${build_dir}/flash_${flasher_filename}_args"
+                INPUT "${build_dir}/${target_name}_args")
+
+    add_dependencies(${target_name} ${dependencies})
+
+    if(CONFIG_SECURE_FLASH_ENCRYPTION_MODE_DEVELOPMENT)
+        file_generate("${build_dir}/flash_encrypted_${flasher_filename}_args"
+                    INPUT "${build_dir}/encrypted_${target_name}_args")
+
+        add_dependencies(encrypted-${target_name} ${dependencies})
     endif()
 endfunction()
+
+if(NOT BOOTLOADER_BUILD)
+    set(flash_deps "partition_table_bin")
+
+    if(CONFIG_APP_BUILD_GENERATE_BINARIES)
+        list(APPEND flash_deps "app")
+    endif()
+
+    if(CONFIG_APP_BUILD_BOOTLOADER)
+        list(APPEND flash_deps "bootloader")
+    endif()
+
+    esptool_py_custom_target(flash project "${flash_deps}")
+endif()

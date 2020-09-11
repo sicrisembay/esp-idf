@@ -1,0 +1,170 @@
+check_line_endings:
+  extends: .check_job_template
+  script:
+    - tools/ci/check-line-endings.sh ${IDF_PATH}
+
+check_permissions:
+  extends: .check_job_template
+  script:
+    - tools/ci/check-executable.sh
+
+check_docs_lang_sync:
+  extends: .check_job_template
+  stage: pre_check
+  variables:
+    SUBMODULES_TO_FETCH: "none"
+  script:
+    - cd docs
+    - ./check_lang_folder_sync.sh
+
+check_docs_gh_links:
+  extends: .build_docs_template
+  stage: pre_check
+  variables:
+    SUBMODULES_TO_FETCH: "none"
+  script:
+    - cd docs
+    - ${IDF_PATH}/tools/ci/multirun_with_pyenv.sh -p 3.6.10 pip install -r requirements.txt
+    - ${IDF_PATH}/tools/ci/multirun_with_pyenv.sh -p 3.6.10 ./build_docs.py gh-linkcheck
+
+check_version:
+  extends: .check_job_template
+  # Don't run this for feature/bugfix branches, so that it is possible to modify
+  # esp_idf_version.h in a branch before tagging the next version.
+  only:
+    - master
+    - /^release\/v/
+    - /^v\d+\.\d+(\.\d+)?($|-)/
+  script:
+    - export IDF_PATH=$PWD
+    - tools/ci/check_idf_version.sh
+
+check_examples_cmake_make:
+  extends: .check_job_template_with_filter
+  except:
+    - master
+    - /^release\/v/
+    - /^v\d+\.\d+(\.\d+)?($|-)/
+  script:
+    - python ${IDF_PATH}/tools/ci/check_examples_cmake_make.py
+
+check_rom_api_header:
+  extends: .check_job_template_with_filter
+  script:
+    - tools/ci/check_examples_rom_header.sh
+    - tools/ci/check_rom_apis.sh
+
+check_python_style:
+  extends: .python_lint_template
+  artifacts:
+    when: on_failure
+    paths:
+      - flake8_output.txt
+    expire_in: 1 week
+  script:
+    - ${IDF_PATH}/tools/ci/multirun_with_pyenv.sh python -m flake8 --config=$IDF_PATH/.flake8 --output-file=flake8_output.txt --tee --benchmark $IDF_PATH
+
+check_kconfigs:
+  extends: .check_job_template_with_filter
+  artifacts:
+    when: on_failure
+    paths:
+      - components/*/Kconfig*.new
+      - examples/*/*/*/Kconfig*.new
+      - examples/*/*/*/*/Kconfig*.new
+      - tools/*/Kconfig*.new
+      - tools/*/*/Kconfig*.new
+      - tools/*/*/*/Kconfig*.new
+    expire_in: 1 week
+  script:
+    - ${IDF_PATH}/tools/ci/multirun_with_pyenv.sh ${IDF_PATH}/tools/test_check_kconfigs.py
+    - ${IDF_PATH}/tools/check_kconfigs.py
+
+check_deprecated_kconfig_options:
+  extends: .check_job_template_with_filter
+  script:
+    - ${IDF_PATH}/tools/ci/check_deprecated_kconfigs.py
+
+check_cmake_style:
+  extends: .check_job_template
+  only:
+    variables:
+      - $BOT_TRIGGER_WITH_LABEL == null
+      - $BOT_LABEL_BUILD
+      - $BOT_LABEL_REGULAR_TEST
+  script:
+    tools/cmake/run_cmake_lint.sh
+
+check_wifi_lib_md5:
+  stage: pre_check
+  image: $CI_DOCKER_REGISTRY/esp32-ci-env$BOT_DOCKER_IMAGE_TAG
+  tags:
+    - build
+  variables:
+    SUBMODULES_TO_FETCH: "components/esp_wifi/lib"
+  dependencies: []
+  script:
+    - IDF_TARGET=esp32 $IDF_PATH/components/esp_wifi/test_md5/test_md5.sh
+    - IDF_TARGET=esp32s2 $IDF_PATH/components/esp_wifi/test_md5/test_md5.sh
+
+# Build at least one project for each target at earliest stage to reduce build cost for obvious failing commits
+fast_template_app:
+  extends: .build_template_app_template
+  stage: pre_check
+  variables:
+    BUILD_COMMAND_ARGS: "-p"
+
+check_public_headers:
+  stage: pre_check
+  image: $CI_DOCKER_REGISTRY/esp32-ci-env$BOT_DOCKER_IMAGE_TAG
+  tags:
+    - build
+  variables:
+    BATCH_BUILD: "1"
+  only:
+    variables:
+      - $BOT_TRIGGER_WITH_LABEL == null
+      - $BOT_LABEL_BUILD
+      - $BOT_LABEL_REGULAR_TEST
+  script:
+    - python tools/ci/check_public_headers.py --jobs 4 --prefix xtensa-esp32-elf-
+
+.scan_build_tests:
+  stage: pre_check
+  image: $CI_DOCKER_REGISTRY/ubuntu-test-env$BOT_DOCKER_IMAGE_TAG
+  tags:
+    - assign_test
+  variables:
+    CI_SCAN_TESTS_PY: ${CI_PROJECT_DIR}/tools/ci/python_packages/ttfw_idf/CIScanTests.py
+    TEST_CONFIG_FILE: ${CI_PROJECT_DIR}/tools/ci/config/target-test.yml
+
+scan_tests:
+  extends: .scan_build_tests
+  only:
+    variables:
+      - $BOT_TRIGGER_WITH_LABEL == null
+      - $BOT_LABEL_REGULAR_TEST
+      - $BOT_LABEL_EXAMPLE_TEST
+      - $BOT_LABEL_CUSTOM_TEST
+  artifacts:
+    paths:
+      - $EXAMPLE_TEST_OUTPUT_DIR
+      - $TEST_APPS_OUTPUT_DIR
+  variables:
+    EXAMPLE_TEST_DIR: ${CI_PROJECT_DIR}/examples
+    EXAMPLE_TEST_OUTPUT_DIR: ${CI_PROJECT_DIR}/examples/test_configs
+    TEST_APPS_TEST_DIR: ${CI_PROJECT_DIR}/tools/test_apps
+    TEST_APPS_OUTPUT_DIR: ${CI_PROJECT_DIR}/tools/test_apps/test_configs
+  script:
+    - python $CI_SCAN_TESTS_PY example_test -b make $EXAMPLE_TEST_DIR --exclude examples/build_system/idf_as_lib -c $TEST_CONFIG_FILE -o $EXAMPLE_TEST_OUTPUT_DIR
+    - python $CI_SCAN_TESTS_PY example_test -b cmake $EXAMPLE_TEST_DIR --exclude examples/build_system/idf_as_lib -c $TEST_CONFIG_FILE -o $EXAMPLE_TEST_OUTPUT_DIR
+    - python $CI_SCAN_TESTS_PY test_apps $TEST_APPS_TEST_DIR -c $TEST_CONFIG_FILE -o $TEST_APPS_OUTPUT_DIR
+
+check_readme_links:
+  extends: .check_job_template
+  tags: [ "amd64", "deploy", "internet" ]
+  allow_failure: true
+  variables:
+    PYTHON_VER: 3
+  script:
+    - python ${IDF_PATH}/tools/ci/check_readme_links.py

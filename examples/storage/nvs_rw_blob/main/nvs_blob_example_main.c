@@ -27,7 +27,7 @@
  */
 esp_err_t save_restart_counter(void)
 {
-    nvs_handle my_handle;
+    nvs_handle_t my_handle;
     esp_err_t err;
 
     // Open
@@ -64,7 +64,7 @@ esp_err_t save_restart_counter(void)
  */
 esp_err_t save_run_time(void)
 {
-    nvs_handle my_handle;
+    nvs_handle_t my_handle;
     esp_err_t err;
 
     // Open
@@ -110,7 +110,7 @@ esp_err_t save_run_time(void)
  */
 esp_err_t print_what_saved(void)
 {
-    nvs_handle my_handle;
+    nvs_handle_t my_handle;
     esp_err_t err;
 
     // Open
@@ -150,7 +150,7 @@ esp_err_t print_what_saved(void)
 }
 
 
-void app_main()
+void app_main(void)
 {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -167,7 +167,7 @@ void app_main()
     err = save_restart_counter();
     if (err != ESP_OK) printf("Error (%s) saving restart counter to NVS!\n", esp_err_to_name(err));
 
-    gpio_pad_select_gpio(GPIO_NUM_0);
+    gpio_reset_pin(GPIO_NUM_0);
     gpio_set_direction(GPIO_NUM_0, GPIO_MODE_DEF_INPUT);
 
     /* Read the status of GPIO0. If GPIO0 is LOW for longer than 1000 ms,

@@ -44,7 +44,7 @@ extern "C" {
 
 /* Pre-partition table fixed flash offsets */
 #define ESP_BOOTLOADER_DIGEST_OFFSET 0x0
-#define ESP_BOOTLOADER_OFFSET 0x1000 /* Offset of bootloader image. Has matching value in bootloader KConfig.projbuild file. */
+#define ESP_BOOTLOADER_OFFSET CONFIG_BOOTLOADER_OFFSET_IN_FLASH  /* Offset of bootloader image. Has matching value in bootloader KConfig.projbuild file. */
 #define ESP_PARTITION_TABLE_OFFSET CONFIG_PARTITION_TABLE_OFFSET /* Offset of partition table. Backwards-compatible name.*/
 
 #define ESP_PARTITION_TABLE_MAX_LEN 0xC00 /* Maximum length of partition table data */
@@ -98,11 +98,16 @@ typedef struct {
 esp_err_t esp_partition_table_verify(const esp_partition_info_t *partition_table, bool log_errors, int *num_partitions);
 
 
-/* This function is included for compatibility with the ESP-IDF v3.x API */
-inline static __attribute__((deprecated)) esp_err_t esp_partition_table_basic_verify(const esp_partition_info_t *partition_table, bool log_errors, int *num_partitions)
-{
-    return esp_partition_table_verify(partition_table, log_errors, num_partitions);
-}
+/**
+ * Check whether the region on the main flash is safe to write.
+ *
+ * @param addr Start address of the region
+ * @param size Size of the region
+ *
+ * @return true if the region is safe to write, otherwise false.
+ */
+bool esp_partition_main_flash_region_safe(size_t addr, size_t size);
+
 #ifdef __cplusplus
 }
 #endif

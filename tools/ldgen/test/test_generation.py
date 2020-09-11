@@ -15,8 +15,10 @@
 # limitations under the License.
 #
 
-import unittest
+import os
 import sys
+import tempfile
+import unittest
 
 try:
     from generation import PlacementRule
@@ -41,6 +43,21 @@ class GenerationModelTest(unittest.TestCase):
         self.model = GenerationModel()
         self.sections_info = None
         self.script_model = None
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            self.kconfigs_source_file = os.path.join(tempfile.gettempdir(), f.name)
+            self.addCleanup(os.remove, self.kconfigs_source_file)
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            self.kconfig_projbuilds_source_file = os.path.join(tempfile.gettempdir(), f.name)
+            self.addCleanup(os.remove, self.kconfig_projbuilds_source_file)
+
+        os.environ['COMPONENT_KCONFIGS_SOURCE_FILE'] = self.kconfigs_source_file
+        os.environ['COMPONENT_KCONFIGS_PROJBUILD_SOURCE_FILE'] = self.kconfig_projbuilds_source_file
+        os.environ['COMPONENT_KCONFIGS'] = ''
+        os.environ['COMPONENT_KCONFIGS_PROJBUILD'] = ''
+
+        # prepare_kconfig_files.py doesn't have to be called because COMPONENT_KCONFIGS and
+        # COMPONENT_KCONFIGS_PROJBUILD are empty
 
         self.sdkconfig = SDKConfig("data/Kconfig", "data/sdkconfig")
 
@@ -1108,6 +1125,20 @@ entries:
 
             self.compare_rules(expected, actual)
 
+    def test_rule_generation_empty_entries(self):
+        normal = u"""
+[mapping:test]
+archive: lib.a
+entries:
+    if PERFORMANCE_LEVEL >= 1: # is false, generate no special rules
+        obj.a (noflash)
+"""
+
+        self.add_fragments(normal)
+        actual = self.model.generate_rules(self.sections_info)
+        expected = self.generate_default_rules()  # only default rules
+        self.compare_rules(expected, actual)
+
     def test_conditional_sections_1(self):
         generation_with_condition = u"""
 [sections:cond_text_data]
@@ -1231,6 +1262,165 @@ entries:
                     expected["dram0_data"].append(dram_rule)
 
             self.compare_rules(expected, actual)
+
+    def test_rule_generation_multiple_deprecated_mapping_definitions(self):
+        multiple_deprecated_definitions = u"""
+[mapping]
+archive: lib.a
+entries:
+    : PERFORMANCE_LEVEL = 0
+    : PERFORMANCE_LEVEL = 1
+    obj1 (noflash)
+    : PERFORMANCE_LEVEL = 2
+    obj1 (noflash)
+    : PERFORMANCE_LEVEL = 3
+    obj1 (noflash)
+
+[mapping]
+archive: lib.a
+entries:
+    : PERFORMANCE_LEVEL = 1
+    obj1 (noflash) # ignore duplicate definition
+    : PERFORMANCE_LEVEL = 2
+    obj2 (noflash)
+    : PERFORMANCE_LEVEL = 3
+    obj2 (noflash)
+    obj3 (noflash)
+"""
+
+        for perf_level in range(0, 4):
+            self.sdkconfig.config.syms["PERFORMANCE_LEVEL"].set_value(str(perf_level))
+
+            self.model.mappings = {}
+            self.add_fragments(multiple_deprecated_definitions)
+
+            actual = self.model.generate_rules(self.sections_info)
+            expected = self.generate_default_rules()
+
+            if perf_level < 4:
+                for append_no in range(1, perf_level + 1):
+                    flash_text_default = self.get_default("flash_text", expected)
+                    flash_rodata_default = self.get_default("flash_rodata", expected)
+
+                    iram_rule = PlacementRule("lib.a", "obj" + str(append_no), None, self.model.sections["text"].entries, "iram0_text")
+                    dram_rule = PlacementRule("lib.a", "obj" + str(append_no), None, self.model.sections["rodata"].entries, "dram0_data")
+
+                    flash_text_default.add_exclusion(iram_rule)
+                    flash_rodata_default.add_exclusion(dram_rule)
+
+                    expected["iram0_text"].append(iram_rule)
+                    expected["dram0_data"].append(dram_rule)
+
+            self.compare_rules(expected, actual)
+
+    def test_rule_generation_multiple_mapping_definitions(self):
+        multiple_deprecated_definitions = u"""
+[mapping:base]
+archive: lib.a
+entries:
+    if PERFORMANCE_LEVEL = 1:
+        obj1 (noflash)
+    elif PERFORMANCE_LEVEL = 2:
+        obj1 (noflash)
+    elif PERFORMANCE_LEVEL = 3:
+        obj1 (noflash)
+    else:
+        * (default)
+
+[mapping:extra]
+archive: lib.a
+entries:
+    if PERFORMANCE_LEVEL = 1:
+        obj1 (noflash) # ignore duplicate definition
+    elif PERFORMANCE_LEVEL = 2:
+        obj2 (noflash)
+    elif PERFORMANCE_LEVEL = 3:
+        obj2 (noflash)
+        obj3 (noflash)
+    else:
+        * (default)
+"""
+
+        for perf_level in range(0, 4):
+            self.sdkconfig.config.syms["PERFORMANCE_LEVEL"].set_value(str(perf_level))
+
+            self.model.mappings = {}
+            self.add_fragments(multiple_deprecated_definitions)
+
+            actual = self.model.generate_rules(self.sections_info)
+            expected = self.generate_default_rules()
+
+            if perf_level < 4:
+                for append_no in range(1, perf_level + 1):
+                    flash_text_default = self.get_default("flash_text", expected)
+                    flash_rodata_default = self.get_default("flash_rodata", expected)
+
+                    iram_rule = PlacementRule("lib.a", "obj" + str(append_no), None, self.model.sections["text"].entries, "iram0_text")
+                    dram_rule = PlacementRule("lib.a", "obj" + str(append_no), None, self.model.sections["rodata"].entries, "dram0_data")
+
+                    flash_text_default.add_exclusion(iram_rule)
+                    flash_rodata_default.add_exclusion(dram_rule)
+
+                    expected["iram0_text"].append(iram_rule)
+                    expected["dram0_data"].append(dram_rule)
+
+            self.compare_rules(expected, actual)
+
+    def test_rules_order(self):
+        # The fragments are structured such that ldgen will:
+        #  - parse freertos2 mapping first
+        #  - entry for prvCheckPendingReadyList is parsed first before prvCheckDelayedList
+        # We expect that despite this, ldgen will output rules in a set order:
+        # by increasing specificity and alphabetically
+        test = u"""
+[mapping:freertos2]
+archive: libfreertos2.a
+entries:
+    croutine2 (noflash_text)
+    croutine (noflash_text)
+
+[mapping:freertos]
+archive: libfreertos.a
+entries:
+    croutine:prvCheckPendingReadyList (noflash_text)
+    croutine:prvCheckDelayedList (noflash_text)
+"""
+        self.add_fragments(test)
+
+        actual = self.model.generate_rules(self.sections_info)
+
+        expected = self.generate_default_rules()
+
+        flash_text_default = self.get_default("flash_text", expected)
+
+        iram0_text_E1 = PlacementRule("libfreertos2.a", "croutine2", None, self.model.sections["text"].entries, "iram0_text")
+        iram0_text_E2 = PlacementRule("libfreertos2.a", "croutine", None, self.model.sections["text"].entries, "iram0_text")
+        iram0_text_E3 = PlacementRule("libfreertos.a", "croutine", "prvCheckPendingReadyList", self.model.sections["text"].entries, "iram0_text")
+        iram0_text_E4 = PlacementRule("libfreertos.a", "croutine", "prvCheckDelayedList", self.model.sections["text"].entries, "iram0_text")
+
+        flash_text_extra = PlacementRule("libfreertos.a", "croutine", None, [".text.*", ".literal.*"], "flash_text")
+
+        # Add the exclusions
+        flash_text_default.add_exclusion(iram0_text_E1, self.sections_info)
+        flash_text_default.add_exclusion(iram0_text_E2, self.sections_info)
+
+        flash_text_default.add_exclusion(flash_text_extra, self.sections_info)
+        flash_text_extra.add_exclusion(iram0_text_E3, self.sections_info)
+        flash_text_extra.add_exclusion(iram0_text_E4, self.sections_info)
+
+        # Add the rules, arranged by expected order
+        expected["flash_text"].append(flash_text_extra)
+        expected["iram0_text"].append(iram0_text_E4)
+        expected["iram0_text"].append(iram0_text_E3)
+        expected["iram0_text"].append(iram0_text_E2)
+        expected["iram0_text"].append(iram0_text_E1)
+
+        # Perform general comparison for all sections
+        self.compare_rules(expected, actual)
+
+        # Perform ordered comparison
+        self.assertListEqual(actual["flash_text"], expected["flash_text"])
+        self.assertListEqual(actual["iram0_text"], expected["iram0_text"])
 
 
 if __name__ == "__main__":

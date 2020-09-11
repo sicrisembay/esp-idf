@@ -1,4 +1,7 @@
 from __future__ import print_function
+
+import argparse
+
 import yaml
 import os
 import re
@@ -8,9 +11,14 @@ import subprocess
 from copy import deepcopy
 import CreateSectionTable
 
+try:
+    from yaml import CLoader as Loader
+except ImportError:
+    from yaml import Loader as Loader
+
 TEST_CASE_PATTERN = {
     "initial condition": "UTINIT1",
-    "SDK": "ESP32_IDF",
+    "chip_target": "esp32",
     "level": "Unit",
     "execution time": 0,
     "auto test": "Yes",
@@ -28,8 +36,8 @@ TEST_CASE_PATTERN = {
 class Parser(object):
     """ parse unit test cases from build files and create files for test bench """
 
-    TAG_PATTERN = re.compile("([^=]+)(=)?(.+)?")
-    DESCRIPTION_PATTERN = re.compile("\[([^]\[]+)\]")  # noqa: W605 - regular expression
+    TAG_PATTERN = re.compile(r"([^=]+)(=)?(.+)?")
+    DESCRIPTION_PATTERN = re.compile(r"\[([^]\[]+)\]")
     CONFIG_PATTERN = re.compile(r"{([^}]+)}")
     TEST_GROUPS_PATTERN = re.compile(r"TEST_GROUPS=(.*)$")
 
@@ -38,20 +46,30 @@ class Parser(object):
     MODULE_DEF_FILE = os.path.join("tools", "unit-test-app", "tools", "ModuleDefinition.yml")
     CONFIG_DEPENDENCY_FILE = os.path.join("tools", "unit-test-app", "tools", "ConfigDependency.yml")
     MODULE_ARTIFACT_FILE = os.path.join("components", "idf_test", "ModuleDefinition.yml")
-    TEST_CASE_FILE = os.path.join("components", "idf_test", "unit_test", "TestCaseAll.yml")
-    UT_BIN_FOLDER = os.path.join("tools", "unit-test-app", "output")
+    TEST_CASE_FILE_DIR = os.path.join("components", "idf_test", "unit_test")
     UT_CONFIG_FOLDER = os.path.join("tools", "unit-test-app", "configs")
     ELF_FILE = "unit-test-app.elf"
     SDKCONFIG_FILE = "sdkconfig"
+    STRIP_CONFIG_PATTERN = re.compile(r"(.+?)(_\d+)?$")
+    TOOLCHAIN_FOR_TARGET = {
+        "esp32": "xtensa-esp32-elf-",
+        "esp32s2": "xtensa-esp32s2-elf-",
+    }
 
-    def __init__(self, idf_path=os.getenv("IDF_PATH")):
+    def __init__(self, binary_folder):
+        idf_path = os.getenv('IDF_PATH')
+        idf_target = os.getenv('IDF_TARGET')
         self.test_env_tags = {}
         self.unit_jobs = {}
         self.file_name_cache = {}
         self.idf_path = idf_path
-        self.tag_def = yaml.load(open(os.path.join(idf_path, self.TAG_DEF_FILE), "r"))
-        self.module_map = yaml.load(open(os.path.join(idf_path, self.MODULE_DEF_FILE), "r"))
-        self.config_dependencies = yaml.load(open(os.path.join(idf_path, self.CONFIG_DEPENDENCY_FILE), "r"))
+        self.idf_target = idf_target
+        self.ut_bin_folder = binary_folder
+        self.objdump = Parser.TOOLCHAIN_FOR_TARGET.get(idf_target, "") + "objdump"
+        self.tag_def = yaml.load(open(os.path.join(idf_path, self.TAG_DEF_FILE), "r"), Loader=Loader)
+        self.module_map = yaml.load(open(os.path.join(idf_path, self.MODULE_DEF_FILE), "r"), Loader=Loader)
+        self.config_dependencies = yaml.load(open(os.path.join(idf_path, self.CONFIG_DEPENDENCY_FILE), "r"),
+                                             Loader=Loader)
         # used to check if duplicated test case names
         self.test_case_names = set()
         self.parsing_errors = []
@@ -59,20 +77,28 @@ class Parser(object):
     def parse_test_cases_for_one_config(self, configs_folder, config_output_folder, config_name):
         """
         parse test cases from elf and save test cases need to be executed to unit test folder
-        :param configs_folder: folder where per-config sdkconfig framents are located (i.e. tools/unit-test-app/configs)
+        :param configs_folder: folder where per-config sdkconfig fragments are located (i.e. tools/unit-test-app/configs)
         :param config_output_folder: build folder of this config
         :param config_name: built unit test config name
         """
+        tags = self.parse_tags(os.path.join(config_output_folder, self.SDKCONFIG_FILE))
+        print("Tags of config %s: %s" % (config_name, tags))
+
         test_groups = self.get_test_groups(os.path.join(configs_folder, config_name))
 
         elf_file = os.path.join(config_output_folder, self.ELF_FILE)
-        subprocess.check_output('xtensa-esp32-elf-objdump -t {} | grep test_desc > case_address.tmp'.format(elf_file),
+        subprocess.check_output('{} -t {} | grep test_desc > case_address.tmp'.format(self.objdump, elf_file),
                                 shell=True)
-        subprocess.check_output('xtensa-esp32-elf-objdump -s {} > section_table.tmp'.format(elf_file), shell=True)
+        subprocess.check_output('{} -s {} > section_table.tmp'.format(self.objdump, elf_file), shell=True)
 
         table = CreateSectionTable.SectionTable("section_table.tmp")
-        tags = self.parse_tags(os.path.join(config_output_folder, self.SDKCONFIG_FILE))
         test_cases = []
+
+        # we could split cases of same config into multiple binaries as we have limited rom space
+        # we should regard those configs like `default` and `default_2` as the same config
+        match = self.STRIP_CONFIG_PATTERN.match(config_name)
+        stripped_config_name = match.group(1)
+
         with open("case_address.tmp", "rb") as f:
             for line in f:
                 # process symbol table like: "3ffb4310 l     O .dram0.data	00000018 test_desc_33$5010"
@@ -82,22 +108,21 @@ class Parser(object):
 
                 name_addr = table.get_unsigned_int(section, test_addr, 4)
                 desc_addr = table.get_unsigned_int(section, test_addr + 4, 4)
-                file_name_addr = table.get_unsigned_int(section, test_addr + 12, 4)
                 function_count = table.get_unsigned_int(section, test_addr + 20, 4)
                 name = table.get_string("any", name_addr)
                 desc = table.get_string("any", desc_addr)
-                file_name = table.get_string("any", file_name_addr)
-                tc = self.parse_one_test_case(name, desc, file_name, config_name, tags)
+
+                tc = self.parse_one_test_case(name, desc, config_name, stripped_config_name, tags)
 
                 # check if duplicated case names
                 # we need to use it to select case,
                 # if duplicated IDs, Unity could select incorrect case to run
                 # and we need to check all cases no matter if it's going te be executed by CI
                 # also add app_name here, we allow same case for different apps
-                if (tc["summary"] + config_name) in self.test_case_names:
+                if (tc["summary"] + stripped_config_name) in self.test_case_names:
                     self.parsing_errors.append("duplicated test case ID: " + tc["summary"])
                 else:
-                    self.test_case_names.add(tc["summary"] + config_name)
+                    self.test_case_names.add(tc["summary"] + stripped_config_name)
 
                 test_group_included = True
                 if test_groups is not None and tc["group"] not in test_groups:
@@ -121,9 +146,9 @@ class Parser(object):
 
         return test_cases
 
-    def parse_case_properities(self, tags_raw):
+    def parse_case_properties(self, tags_raw):
         """
-        parse test case tags (properities) with the following rules:
+        parse test case tags (properties) with the following rules:
             * first tag is always group of test cases, it's mandatory
             * the rest tags should be [type=value].
                 * if the type have default value, then [type] equal to [type=default_value].
@@ -192,7 +217,7 @@ class Parser(object):
     def parse_tags(self, sdkconfig_file):
         """
         Some test configs could requires different DUTs.
-        For example, if CONFIG_SPIRAM_SUPPORT is enabled, we need WROVER-Kit to run test.
+        For example, if CONFIG_ESP32_SPIRAM_SUPPORT is enabled, we need WROVER-Kit to run test.
         This method will get tags for runners according to ConfigDependency.yml(maps tags to sdkconfig).
 
         We support to the following syntax::
@@ -205,7 +230,6 @@ class Parser(object):
         :param sdkconfig_file: sdk config file of the unit test config
         :return: required tags for runners
         """
-
         with open(sdkconfig_file, "r") as f:
             configs_raw_data = f.read()
 
@@ -226,24 +250,24 @@ class Parser(object):
                     return match.group(1).split(' ')
         return None
 
-    def parse_one_test_case(self, name, description, file_name, config_name, tags):
+    def parse_one_test_case(self, name, description, config_name, stripped_config_name, tags):
         """
         parse one test case
         :param name: test case name (summary)
         :param description: test case description (tag string)
-        :param file_name: the file defines this test case
         :param config_name: built unit test app name
+        :param stripped_config_name: strip suffix from config name because they're the same except test components
         :param tags: tags to select runners
         :return: parsed test case
         """
-        prop = self.parse_case_properities(description)
+        prop = self.parse_case_properties(description)
 
         test_case = deepcopy(TEST_CASE_PATTERN)
         test_case.update({"config": config_name,
                           "module": self.module_map[prop["module"]]['module'],
                           "group": prop["group"],
                           "CI ready": "No" if prop["ignore"] == "Yes" else "Yes",
-                          "ID": name,
+                          "ID": "[{}] {}".format(stripped_config_name, name),
                           "test point 2": prop["module"],
                           "steps": name,
                           "test environment": prop["test_env"],
@@ -253,7 +277,8 @@ class Parser(object):
                           "multi_device": prop["multi_device"],
                           "multi_stage": prop["multi_stage"],
                           "timeout": int(prop["timeout"]),
-                          "tags": tags})
+                          "tags": tags,
+                          "chip_target": self.idf_target})
         return test_case
 
     def dump_test_cases(self, test_cases):
@@ -261,7 +286,12 @@ class Parser(object):
         dump parsed test cases to YAML file for test bench input
         :param test_cases: parsed test cases
         """
-        with open(os.path.join(self.idf_path, self.TEST_CASE_FILE), "w+") as f:
+        filename = os.path.join(self.idf_path, self.TEST_CASE_FILE_DIR, self.idf_target + ".yml")
+        try:
+            os.mkdir(os.path.dirname(filename))
+        except OSError:
+            pass
+        with open(os.path.join(filename), "w+") as f:
             yaml.dump({"test cases": test_cases}, f, allow_unicode=True, default_flow_style=False)
 
     def copy_module_def_file(self):
@@ -274,9 +304,10 @@ class Parser(object):
         """ parse test cases from multiple built unit test apps """
         test_cases = []
 
-        output_folder = os.path.join(self.idf_path, self.UT_BIN_FOLDER)
+        output_folder = os.path.join(self.idf_path, self.ut_bin_folder, self.idf_target)
         configs_folder = os.path.join(self.idf_path, self.UT_CONFIG_FOLDER)
-        test_configs = os.listdir(output_folder)
+        test_configs = [item for item in os.listdir(output_folder)
+                        if os.path.isdir(os.path.join(output_folder, item))]
         for config in test_configs:
             config_output_folder = os.path.join(output_folder, config)
             if os.path.exists(config_output_folder):
@@ -285,33 +316,33 @@ class Parser(object):
         self.dump_test_cases(test_cases)
 
 
-def test_parser():
-    parser = Parser()
+def test_parser(binary_folder):
+    parser = Parser(binary_folder)
     # test parsing tags
     # parsing module only and module in module list
-    prop = parser.parse_case_properities("[esp32]")
+    prop = parser.parse_case_properties("[esp32]")
     assert prop["module"] == "esp32"
     # module not in module list
-    prop = parser.parse_case_properities("[not_in_list]")
+    prop = parser.parse_case_properties("[not_in_list]")
     assert prop["module"] == "misc"
     # parsing a default tag, a tag with assigned value
-    prop = parser.parse_case_properities("[esp32][ignore][test_env=ABCD][not_support1][not_support2=ABCD]")
+    prop = parser.parse_case_properties("[esp32][ignore][test_env=ABCD][not_support1][not_support2=ABCD]")
     assert prop["ignore"] == "Yes" and prop["test_env"] == "ABCD" \
-        and "not_support1" not in prop and "not_supported2" not in prop
+           and "not_support1" not in prop and "not_supported2" not in prop
     # parsing omitted value
-    prop = parser.parse_case_properities("[esp32]")
+    prop = parser.parse_case_properties("[esp32]")
     assert prop["ignore"] == "No" and prop["test_env"] == "UT_T1_1"
     # parsing with incorrect format
     try:
-        parser.parse_case_properities("abcd")
+        parser.parse_case_properties("abcd")
         assert False
     except AssertionError:
         pass
     # skip invalid data parse, [type=] assigns empty string to type
-    prop = parser.parse_case_properities("[esp32]abdc aaaa [ignore=]")
+    prop = parser.parse_case_properties("[esp32]abdc aaaa [ignore=]")
     assert prop["module"] == "esp32" and prop["ignore"] == ""
     # skip mis-paired []
-    prop = parser.parse_case_properities("[esp32][[ignore=b]][]][test_env=AAA]]")
+    prop = parser.parse_case_properties("[esp32][[ignore=b]][]][test_env=AAA]]")
     assert prop["module"] == "esp32" and prop["ignore"] == "b" and prop["test_env"] == "AAA"
 
     config_dependency = {
@@ -327,19 +358,22 @@ def test_parser():
     assert sorted(tags) == ['a', 'd', 'f']  # sorted is required for older Python3, e.g. 3.4.8
 
 
-def main():
-    test_parser()
+def main(binary_folder):
+    assert os.getenv('IDF_PATH'), 'IDF_PATH must be set to use this script'
+    assert os.getenv('IDF_TARGET'), 'IDF_TARGET must be set to use this script'
+    test_parser(binary_folder)
 
-    idf_path = os.getenv("IDF_PATH")
-
-    parser = Parser(idf_path)
+    parser = Parser(binary_folder)
     parser.parse_test_cases()
     parser.copy_module_def_file()
     if len(parser.parsing_errors) > 0:
         for error in parser.parsing_errors:
             print(error)
-        exit(-1)
+        exit(1)
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('bin_dir', help='Binary Folder')
+    args = parser.parse_args()
+    main(args.bin_dir)
