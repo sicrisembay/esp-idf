@@ -69,6 +69,7 @@ static int cmp_or_dump(const void *a, const void *b, size_t len)
     return r;
 }
 
+
 static void IRAM_ATTR test_read(int src_off, int dst_off, int len)
 {
     uint32_t src_buf[16];
@@ -140,6 +141,56 @@ TEST_CASE("Test spi_flash_read", "[spi_flash][esp_flash]")
 #endif
 }
 
+extern void spi_common_set_dummy_output(esp_rom_spiflash_read_mode_t mode);
+extern void spi_dummy_len_fix(uint8_t spi, uint8_t freqdiv);
+static void IRAM_ATTR fix_rom_func(void)
+{
+    uint32_t freqdiv = 0;
+
+#if CONFIG_ESPTOOLPY_FLASHFREQ_80M
+    freqdiv = 1;
+#elif CONFIG_ESPTOOLPY_FLASHFREQ_40M
+    freqdiv = 2;
+#elif CONFIG_ESPTOOLPY_FLASHFREQ_26M
+    freqdiv = 3;
+#elif CONFIG_ESPTOOLPY_FLASHFREQ_20M
+    freqdiv = 4;
+#endif
+
+#if CONFIG_IDF_TARGET_ESP32
+    uint32_t dummy_bit = 0;
+#if CONFIG_ESPTOOLPY_FLASHFREQ_80M
+    dummy_bit = ESP_ROM_SPIFLASH_DUMMY_LEN_PLUS_80M;
+#elif CONFIG_ESPTOOLPY_FLASHFREQ_40M
+    dummy_bit = ESP_ROM_SPIFLASH_DUMMY_LEN_PLUS_40M;
+#elif CONFIG_ESPTOOLPY_FLASHFREQ_26M
+    dummy_bit = ESP_ROM_SPIFLASH_DUMMY_LEN_PLUS_26M;
+#elif CONFIG_ESPTOOLPY_FLASHFREQ_20M
+    dummy_bit = ESP_ROM_SPIFLASH_DUMMY_LEN_PLUS_20M;
+#endif
+    g_rom_spiflash_dummy_len_plus[1] = dummy_bit;
+#else
+    spi_dummy_len_fix(1, freqdiv);
+#endif//CONFIG_IDF_TARGET_ESP32
+
+    esp_rom_spiflash_read_mode_t read_mode;
+#if CONFIG_ESPTOOLPY_FLASHMODE_QIO
+    read_mode = ESP_ROM_SPIFLASH_QIO_MODE;
+#elif CONFIG_ESPTOOLPY_FLASHMODE_QOUT
+    read_mode = ESP_ROM_SPIFLASH_QOUT_MODE;
+#elif CONFIG_ESPTOOLPY_FLASHMODE_DIO
+    read_mode = ESP_ROM_SPIFLASH_DIO_MODE;
+#elif CONFIG_ESPTOOLPY_FLASHMODE_DOUT
+    read_mode = ESP_ROM_SPIFLASH_DOUT_MODE;
+#endif
+
+#if !CONFIG_IDF_TARGET_ESP32S2 && !CONFIG_IDF_TARGET_ESP32
+    spi_common_set_dummy_output(read_mode);
+#endif //!CONFIG_IDF_TARGET_ESP32S2
+    esp_rom_spiflash_config_clk(freqdiv, 1);
+    esp_rom_spiflash_config_readmode(read_mode);
+}
+
 static void IRAM_ATTR test_write(int dst_off, int src_off, int len)
 {
     char src_buf[64], dst_gold[64];
@@ -160,6 +211,8 @@ static void IRAM_ATTR test_write(int dst_off, int src_off, int len)
         fill(dst_gold + dst_off, src_off, len);
     }
     ESP_ERROR_CHECK(spi_flash_write(start + dst_off, src_buf + src_off, len));
+
+    fix_rom_func();
 
     spi_flash_disable_interrupts_caches_and_other_cpu();
     esp_rom_spiflash_result_t rc = esp_rom_spiflash_read(start, dst_buf, sizeof(dst_buf));
@@ -216,7 +269,7 @@ TEST_CASE("Test spi_flash_write", "[spi_flash][esp_flash]")
      * NB: At the moment these only support aligned addresses, because memcpy
      * is not aware of the 32-but load requirements for these regions.
      */
-#ifdef CONFIG_IDF_TARGET_ESP32S2
+#if CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3
 #define TEST_SOC_IROM_ADDR              (SOC_IROM_LOW)
 #define TEST_SOC_CACHE_RAM_BANK0_ADDR   (SOC_IRAM_LOW)
 #define TEST_SOC_CACHE_RAM_BANK1_ADDR   (SOC_IRAM_LOW + 0x2000)
@@ -320,4 +373,3 @@ TEST_CASE("spi_flash_read less than 16 bytes into buffer in external RAM", "[spi
 }
 
 #endif // CONFIG_SPIRAM
-

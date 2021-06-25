@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include <stdio.h>
 #include <ctype.h>
 #include <errno.h>
@@ -17,6 +22,7 @@
 #include "test_utils.h"
 #include "sdkconfig.h"
 #include "esp_rom_efuse.h"
+#include "bootloader_common.h"
 
 static const char* TAG = "efuse_test";
 
@@ -535,7 +541,7 @@ TEST_CASE("Test esp_efuse_read_block esp_efuse_write_block functions", "[efuse]"
         printf("EFUSE_CODING_SCHEME_REPEAT\n");
         count_useful_reg = 4;
     }
-#elif CONFIG_IDF_TARGET_ESP32S2
+#else
     if (coding_scheme == EFUSE_CODING_SCHEME_RS) {
         printf("EFUSE_CODING_SCHEME_RS\n");
         count_useful_reg = 8;
@@ -598,7 +604,7 @@ TEST_CASE("Test Bits are not empty. Write operation is forbidden", "[efuse]")
             printf("EFUSE_CODING_SCHEME_REPEAT\n");
             count_useful_reg = 4;
         }
-#elif CONFIG_IDF_TARGET_ESP32S2
+#else
         if (coding_scheme == EFUSE_CODING_SCHEME_RS) {
             printf("EFUSE_CODING_SCHEME_RS\n");
             if (num_block == EFUSE_BLK1) {
@@ -695,8 +701,8 @@ TEST_CASE("Batch mode is thread-safe", "[efuse]")
     sema = xSemaphoreCreateBinary();
 
     printf("\n");
-    xTaskCreatePinnedToCore(task1, "task1", 2048, NULL, UNITY_FREERTOS_PRIORITY - 1, NULL, 0);
-    xTaskCreatePinnedToCore(task2, "task2", 2048, NULL, UNITY_FREERTOS_PRIORITY - 1, NULL, 1);
+    xTaskCreatePinnedToCore(task1, "task1", 3072, NULL, UNITY_FREERTOS_PRIORITY - 1, NULL, 0);
+    xTaskCreatePinnedToCore(task2, "task2", 3072, NULL, UNITY_FREERTOS_PRIORITY - 1, NULL, 1);
     vTaskDelay(3000 / portTICK_PERIOD_MS);
     xSemaphoreTake(sema, portMAX_DELAY);
 
@@ -704,8 +710,8 @@ TEST_CASE("Batch mode is thread-safe", "[efuse]")
     esp_efuse_utility_erase_virt_blocks();
 
     printf("\n");
-    xTaskCreatePinnedToCore(task1, "task1", 2048, NULL, UNITY_FREERTOS_PRIORITY - 1, NULL, 0);
-    xTaskCreatePinnedToCore(task3, "task3", 2048, NULL, UNITY_FREERTOS_PRIORITY - 1, NULL, 1);
+    xTaskCreatePinnedToCore(task1, "task1", 3072, NULL, UNITY_FREERTOS_PRIORITY - 1, NULL, 0);
+    xTaskCreatePinnedToCore(task3, "task3", 3072, NULL, UNITY_FREERTOS_PRIORITY - 1, NULL, 1);
     vTaskDelay(3000 / portTICK_PERIOD_MS);
     xSemaphoreTake(sema, portMAX_DELAY);
 
@@ -766,7 +772,7 @@ TEST_CASE("Test a write/read protection", "[efuse]")
     test_rp(EFUSE_BLK1, ESP_EFUSE_RD_DIS_BLK1, true);
     test_rp(EFUSE_BLK2, ESP_EFUSE_RD_DIS_BLK2, false);
     test_rp(EFUSE_BLK3, ESP_EFUSE_RD_DIS_BLK3, false);
-#elif defined(CONFIG_IDF_TARGET_ESP32S2)
+#else
     test_wp(EFUSE_BLK2, ESP_EFUSE_WR_DIS_SYS_DATA_PART1);
     test_wp(EFUSE_BLK3, ESP_EFUSE_WR_DIS_USER_DATA);
 
@@ -775,8 +781,6 @@ TEST_CASE("Test a write/read protection", "[efuse]")
     test_rp(EFUSE_BLK4, ESP_EFUSE_RD_DIS_KEY0, true);
     test_rp(EFUSE_BLK5, ESP_EFUSE_RD_DIS_KEY1, false);
     test_rp(EFUSE_BLK6, ESP_EFUSE_RD_DIS_KEY2, false);
-#else
-#error New chip not supported!
 #endif
 
     esp_efuse_utility_debug_dump_blocks();
@@ -808,7 +812,7 @@ TEST_CASE("Test a real write (FPGA)", "[efuse]")
         TEST_ASSERT_EQUAL_HEX8_ARRAY(new_mac, mac, sizeof(new_mac));
         esp_efuse_utility_debug_dump_blocks();
     }
-#ifdef CONFIG_IDF_TARGET_ESP32S2
+#ifndef CONFIG_IDF_TARGET_ESP32
     ESP_LOGI(TAG, "2. Write KEY3");
     uint8_t key[32] = {0};
     TEST_ESP_OK(esp_efuse_read_field_blob(ESP_EFUSE_KEY3, &key, 256));
@@ -821,17 +825,19 @@ TEST_CASE("Test a real write (FPGA)", "[efuse]")
                            30, 31};
     TEST_ESP_OK(esp_efuse_write_field_blob(ESP_EFUSE_KEY3, &new_key, 256));
     TEST_ESP_OK(esp_efuse_read_field_blob(ESP_EFUSE_KEY3, &key, 256));
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(new_key, key, sizeof(new_mac));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(new_key, key, sizeof(key));
     esp_efuse_utility_debug_dump_blocks();
 
     ESP_LOGI(TAG, "3. Set a read protection for KEY3");
     TEST_ESP_OK(esp_efuse_set_read_protect(EFUSE_BLK7));
     TEST_ESP_OK(esp_efuse_read_field_blob(ESP_EFUSE_KEY3, &key, 256));
-    for (int i = 0; i < sizeof(key); ++i) {
-        TEST_ASSERT_EQUAL_INT(0, key[i]);
-    }
+#ifndef CONFIG_EFUSE_VIRTUAL
+    TEST_ASSERT_EACH_EQUAL_HEX8(0, key, sizeof(key));
+#else
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(new_key, key, sizeof(key));
+#endif // CONFIG_EFUSE_VIRTUAL
     esp_efuse_utility_debug_dump_blocks();
-#endif // CONFIG_IDF_TARGET_ESP32S2
+#endif // not CONFIG_IDF_TARGET_ESP32
     ESP_LOGI(TAG, "4. Write SECURE_VERSION");
     int max_bits = esp_efuse_get_field_size(ESP_EFUSE_SECURE_VERSION);
     size_t read_sec_version;
@@ -845,3 +851,95 @@ TEST_CASE("Test a real write (FPGA)", "[efuse]")
     }
 }
 #endif  // CONFIG_IDF_ENV_FPGA
+
+TEST_CASE("Test chip_ver_pkg APIs return the same value", "[efuse]")
+{
+    esp_efuse_utility_update_virt_blocks();
+    TEST_ASSERT_EQUAL_INT(esp_efuse_get_pkg_ver(), bootloader_common_get_chip_ver_pkg());
+}
+
+TEST_CASE("Test chip_revision APIs return the same value", "[efuse]")
+{
+    esp_efuse_utility_update_virt_blocks();
+    TEST_ASSERT_EQUAL_INT(esp_efuse_get_chip_ver(), bootloader_common_get_chip_revision());
+}
+
+#ifndef CONFIG_IDF_TARGET_ESP32
+#if CONFIG_IDF_ENV_FPGA || CONFIG_EFUSE_VIRTUAL
+TEST_CASE("Test writing order is BLK_MAX->BLK0", "[efuse]")
+{
+    uint8_t new_key[32] = {33,  1,  2,  3,  4,  5,  6,  7,  8,  9,
+                           10, 11, 12, 12, 14, 15, 16, 17, 18, 19,
+                           20, 21, 22, 22, 24, 25, 26, 27, 28, 29,
+                           30, 31};
+    esp_efuse_utility_erase_virt_blocks();
+    esp_efuse_utility_debug_dump_blocks();
+
+    TEST_ESP_OK(esp_efuse_batch_write_begin());
+
+    TEST_ESP_OK(esp_efuse_write_field_blob(ESP_EFUSE_KEY4, &new_key, 256));
+    // If the order of writing blocks is wrong (ex. BLK0 -> BLK_MAX)
+    // then the write protection bit will be set early and the key was left un-updated.
+    TEST_ESP_OK(esp_efuse_set_write_protect(EFUSE_BLK_KEY4));
+
+    TEST_ESP_OK(esp_efuse_batch_write_commit());
+    esp_efuse_utility_debug_dump_blocks();
+
+    uint8_t key[32] = { 0xEE };
+    TEST_ESP_OK(esp_efuse_read_field_blob(ESP_EFUSE_KEY4, &key, 256));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(new_key, key, sizeof(key));
+}
+
+TEST_CASE("Test reading inside of batch mode in a nested way", "[efuse]")
+{
+    uint8_t new_key[32] = {44,  1,  2,  3,  4,  5,  6,  7,  8,  9,
+                           10, 11, 12, 12, 14, 15, 16, 17, 18, 19,
+                           20, 21, 22, 22, 24, 25, 26, 27, 28, 29,
+                           30, 31};
+    uint8_t key[32] = { 0xEE };
+    esp_efuse_utility_reset();
+    esp_efuse_utility_erase_virt_blocks();
+    esp_efuse_utility_debug_dump_blocks();
+
+    TEST_ESP_OK(esp_efuse_read_field_blob(ESP_EFUSE_KEY5, &key, 256));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0, key, sizeof(key));
+
+    TEST_ESP_OK(esp_efuse_batch_write_begin());
+    TEST_ESP_OK(esp_efuse_batch_write_begin());
+    TEST_ESP_OK(esp_efuse_batch_write_begin());
+    TEST_ESP_OK(esp_efuse_write_field_blob(ESP_EFUSE_KEY5, &new_key, 256));
+    TEST_ESP_OK(esp_efuse_set_write_protect(EFUSE_BLK_KEY5));
+    ESP_LOGI(TAG, "Reading inside Batch mode, the key was not burn yet and it is empty");
+    TEST_ESP_OK(esp_efuse_read_field_blob(ESP_EFUSE_KEY5, &key, 256));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0, key, sizeof(key));
+    TEST_ESP_OK(esp_efuse_batch_write_commit());
+    TEST_ESP_OK(esp_efuse_batch_write_commit());
+    TEST_ESP_OK(esp_efuse_batch_write_commit());
+
+    TEST_ESP_OK(esp_efuse_batch_write_begin());
+    TEST_ESP_OK(esp_efuse_batch_write_begin());
+    TEST_ESP_OK(esp_efuse_batch_write_begin());
+    TEST_ESP_OK(esp_efuse_batch_write_begin());
+    ESP_LOGI(TAG, "Reading inside Batch mode, the key is already set");
+    TEST_ESP_OK(esp_efuse_read_field_blob(ESP_EFUSE_KEY5, &key, 256));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(new_key, key, sizeof(key));
+    TEST_ESP_OK(esp_efuse_batch_write_commit());
+    TEST_ESP_OK(esp_efuse_batch_write_commit());
+    TEST_ESP_OK(esp_efuse_batch_write_commit());
+    TEST_ESP_OK(esp_efuse_batch_write_commit());
+
+    esp_efuse_utility_debug_dump_blocks();
+
+    ESP_LOGI(TAG, "Reading inside Batch mode, the key is already set");
+    TEST_ESP_ERR(ESP_ERR_INVALID_STATE, esp_efuse_batch_write_commit());
+    TEST_ESP_ERR(ESP_ERR_INVALID_STATE, esp_efuse_batch_write_cancel());
+    TEST_ESP_OK(esp_efuse_batch_write_begin());
+    TEST_ESP_OK(esp_efuse_write_field_blob(ESP_EFUSE_KEY2, &new_key, 256));
+    TEST_ESP_OK(esp_efuse_batch_write_commit());
+    TEST_ESP_OK(esp_efuse_read_field_blob(ESP_EFUSE_KEY2, &key, 256));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(new_key, key, sizeof(key));
+
+    esp_efuse_utility_debug_dump_blocks();
+}
+#endif  // CONFIG_IDF_ENV_FPGA || CONFIG_EFUSE_VIRTUAL
+#endif  // not CONFIG_IDF_TARGET_ESP32

@@ -1,16 +1,8 @@
-// Copyright 2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2018-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 
 #include <stdlib.h>
@@ -722,6 +714,7 @@ static void httpd_req_cleanup(httpd_req_t *r)
     ra->sd = NULL;
     r->handle = NULL;
     r->aux = NULL;
+    r->user_ctx = NULL;
 }
 
 /* Function that processes incoming TCP data and
@@ -752,14 +745,16 @@ esp_err_t httpd_req_new(struct httpd_data *hd, struct sock_db *sd)
     esp_err_t ret;
 
 #ifdef CONFIG_HTTPD_WS_SUPPORT
+    /* Copy user_ctx to the request */
+    r->user_ctx = sd->ws_user_ctx;
     /* Handle WebSocket */
     ESP_LOGD(TAG, LOG_FMT("New request, has WS? %s, sd->ws_handler valid? %s, sd->ws_close? %s"),
              sd->ws_handshake_done ? "Yes" : "No",
              sd->ws_handler != NULL ? "Yes" : "No",
              sd->ws_close ? "Yes" : "No");
     if (sd->ws_handshake_done && sd->ws_handler != NULL) {
-        ESP_LOGD(TAG, LOG_FMT("New WS request from existing socket"));
         ret = httpd_ws_get_frame_type(r);
+        ESP_LOGD(TAG, LOG_FMT("New WS request from existing socket, ws_type=%d"), ra->ws_type);
 
         /*  Stop and return here immediately if it's a CLOSE frame */
         if (ra->ws_type == HTTPD_WS_TYPE_CLOSE) {
@@ -767,13 +762,14 @@ esp_err_t httpd_req_new(struct httpd_data *hd, struct sock_db *sd)
             return ret;
         }
 
-        /* Ignore PONG frame, as this is a server */
         if (ra->ws_type == HTTPD_WS_TYPE_PONG) {
-            return ret;
+            /* Pass the PONG frames to the handler as well, as user app might send PINGs */
+            ESP_LOGD(TAG, LOG_FMT("Received PONG frame"));
         }
 
-        /* Call handler if it's a non-control frame */
-        if (ret == ESP_OK && ra->ws_type < HTTPD_WS_TYPE_CLOSE) {
+        /* Call handler if it's a non-control frame (or if handler requests control frames, as well) */
+        if (ret == ESP_OK &&
+            (ra->ws_type < HTTPD_WS_TYPE_CLOSE || sd->ws_control_frames)) {
             ret = sd->ws_handler(r);
         }
 

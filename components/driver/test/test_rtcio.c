@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 /**
  * About test environment UT_T1_GPIO:
  * Please connect GPIO18 and GPIO19
@@ -15,6 +20,8 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "soc/rtc_io_periph.h"
+
+#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S3, ESP32C3)
 
 #define RTCIO_CHECK(condition) TEST_ASSERT_MESSAGE((condition == ESP_OK), "ret is not ESP_OK")
 #define RTCIO_VERIFY(condition, msg) TEST_ASSERT_MESSAGE((condition), msg)
@@ -268,3 +275,5 @@ TEST_CASE("RTCIO output hold test", "[rtcio]")
     }
     ESP_LOGI(TAG, "RTCIO hold test over");
 }
+
+#endif

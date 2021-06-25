@@ -1,4 +1,9 @@
 /*
+ * SPDX-FileCopyrightText: 2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+/*
  * Tests for bootloader_support esp_load(ESP_IMAGE_VERIFY, ...)
  */
 
@@ -10,7 +15,6 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/queue.h"
-#include "freertos/xtensa_api.h"
 #include "unity.h"
 #include "bootloader_common.h"
 #include "bootloader_util.h"
@@ -33,7 +37,6 @@ TEST_CASE("Verify bootloader image in flash", "[bootloader_support]")
     TEST_ASSERT_EQUAL(data.image_len, bootloader_length);
 }
 
-#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2)
 TEST_CASE("Verify unit test app image", "[bootloader_support]")
 {
     esp_image_metadata_t data = { 0 };
@@ -48,7 +51,6 @@ TEST_CASE("Verify unit test app image", "[bootloader_support]")
     TEST_ASSERT_NOT_EQUAL(0, data.image_len);
     TEST_ASSERT_TRUE(data.image_len <= running->size);
 }
-#endif
 
 void check_label_search (int num_test, const char *list, const char *t_label, bool result)
 {

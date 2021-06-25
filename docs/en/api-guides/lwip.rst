@@ -122,7 +122,7 @@ Get the error reason code
 Example::
 
         int err;
-        
+
         if (select(sockfd + 1, NULL, NULL, &exfds, &tval) <= 0) {
             err = errno;
             return err;
@@ -156,17 +156,17 @@ Below is a list of common error codes. For more detailed list of standard POSIX/
 | ETIMEDOUT       | Connection timed out                |
 +-----------------+-------------------------------------+
 | EHOSTDOWN       | Host is down                        |
-+-----------------+-------------------------------------+ 
++-----------------+-------------------------------------+
 | EHOSTUNREACH    | Host is unreachable                 |
-+-----------------+-------------------------------------+ 
++-----------------+-------------------------------------+
 | EINPROGRESS     | Connection already in progress      |
-+-----------------+-------------------------------------+ 
++-----------------+-------------------------------------+
 | EALREADY        | Socket already connected            |
-+-----------------+-------------------------------------+ 
++-----------------+-------------------------------------+
 | EDESTADDRREQ    | Destination address required        |
-+-----------------+-------------------------------------+ 
++-----------------+-------------------------------------+
 | EPROTONOSUPPORT | Unknown protocol                    |
-+-----------------+-------------------------------------+ 
++-----------------+-------------------------------------+
 
 Socket Options
 ^^^^^^^^^^^^^^
@@ -294,6 +294,9 @@ Thread-safe sockets
 
 It is possible to ``close()`` a socket from a different thread to the one that created it. The ``close()`` call will block until any function calls currently using that socket from other tasks have returned.
 
+It is, however, not possible to delete a task while it is actively waiting on ``select()`` or ``poll()`` APIs. It is always necessary that these APIs exit before destroying the task, as this might corrupt internal structures and cause subsequent crashes of the lwIP.
+(These APIs allocate globally referenced callback pointers on stack, so that when the task gets destroyed before unrolling the stack, the lwIP would still hold pointers to the deleted stack)
+
 On demand timers
 ++++++++++++++++
 
@@ -324,16 +327,17 @@ IP layer features
 
 Limitations
 ^^^^^^^^^^^
+Calling ``send()`` or ``sendto()`` repeatedly on a UDP socket may eventually fail with ``errno`` equal to ``ENOMEM``. This is a limitation of buffer sizes in the lower layer network interface drivers. If all driver transmit buffers are full then UDP transmission will fail. Applications sending a high volume of UDP datagrams who don't wish for any to be dropped by the sender should check for this error code and re-send the datagram after a short delay.
 
-- Calling ``send()`` or ``sendto()`` repeatedly on a UDP socket may eventually fail with ``errno`` equal to ``ENOMEM``. This is a limitation of buffer sizes in the lower layer network interface drivers. If all driver transmit buffers are full then UDP transmission will fail. Applications sending a high volume of UDP datagrams who don't wish for any to be dropped by the sender should check for this error code and re-send the datagram after a short delay.
-
-.. only::esp32
+.. only:: esp32
 
     Increasing the number of TX buffers in the :ref:`Wi-Fi <CONFIG_ESP32_WIFI_TX_BUFFER>` or :ref:`Ethernet <CONFIG_ETH_DMA_TX_BUFFER_NUM>` project configuration (as applicable) may also help.
 
-.. only::esp32s2
+.. only:: not esp32
 
     Increasing the number of TX buffers in the :ref:`Wi-Fi <CONFIG_ESP32_WIFI_TX_BUFFER>` project configuration may also help.
+
+.. _lwip-performance:
 
 Performance Optimization
 ------------------------
@@ -349,9 +353,11 @@ The :example_file:`wifi/iperf/sdkconfig.defaults` file for the iperf example con
 
 .. important:: Suggest applying changes a few at a time and checking the performance each time with a particular application workload.
 
-- If a lot of tasks are competing for CPU time on the system, consider that the lwIP task has configurable CPU affinity (:ref:`CONFIG_LWIP_TCPIP_TASK_AFFINITY`) and runs at fixed priority ``ESP_TASK_TCPIP_PRIO`` (18). Configure competing tasks to be pinned to a different core, or to run at a lower priority.
+- If a lot of tasks are competing for CPU time on the system, consider that the lwIP task has configurable CPU affinity (:ref:`CONFIG_LWIP_TCPIP_TASK_AFFINITY`) and runs at fixed priority ``ESP_TASK_TCPIP_PRIO`` (18). Configure competing tasks to be pinned to a different core, or to run at a lower priority. See also :ref:`built-in-task-priorities`.
 
 - If using ``select()`` function with socket arguments only, setting :ref:`CONFIG_LWIP_USE_ONLY_LWIP_SELECT` will make ``select()`` calls faster.
+
+- If there is enough free IRAM, select :ref:`CONFIG_LWIP_IRAM_OPTIMIZATION` to improve TX/RX throughput
 
 If using a Wi-Fi network interface, please also refer to :ref:`wifi-buffer-usage`.
 
@@ -371,6 +377,7 @@ Most lwIP RAM usage is on-demand, as RAM is allocated from the heap as needed. T
 
 - Reducing :ref:`CONFIG_LWIP_MAX_SOCKETS` reduces the maximum number of sockets in the system. This will also cause TCP sockets in the ``WAIT_CLOSE`` state to be closed and recycled more rapidly (if needed to open a new socket), further reducing peak RAM usage.
 - Reducing :ref:`CONFIG_LWIP_TCPIP_RECVMBOX_SIZE`, :ref:`CONFIG_LWIP_TCP_RECVMBOX_SIZE` and :ref:`CONFIG_LWIP_UDP_RECVMBOX_SIZE` reduce memory usage at the expense of throughput, depending on usage.
+- Disable  :ref:`CONFIG_LWIP_IPV6` can save about 39 KB for firmware size and 2KB RAM when system power up and 7KB RAM when TCPIP stack running. If there is no requirement for supporting IPV6 then it can be disabled to save flash and RAM footprint.
 
 If using Wi-Fi, please also refer to :ref:`wifi-buffer-usage`.
 

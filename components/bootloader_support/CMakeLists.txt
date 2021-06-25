@@ -1,12 +1,15 @@
 set(srcs
-    "src/bootloader_clock.c"
     "src/bootloader_common.c"
+    "src/bootloader_common_loader.c"
+    "src/bootloader_clock_init.c"
     "src/bootloader_flash.c"
     "src/bootloader_mem.c"
     "src/bootloader_random.c"
+    "src/bootloader_random_${IDF_TARGET}.c"
     "src/bootloader_utility.c"
     "src/esp_image_format.c"
     "src/flash_encrypt.c"
+    "src/secure_boot.c"
     "src/flash_partitions.c"
     "src/flash_qio_mode.c"
     "src/bootloader_flash_config_${IDF_TARGET}.c"
@@ -18,27 +21,42 @@ if(BOOTLOADER_BUILD)
     set(priv_requires micro-ecc spi_flash efuse)
     list(APPEND srcs
     "src/bootloader_init.c"
+    "src/bootloader_clock_loader.c"
     "src/bootloader_console.c"
     "src/bootloader_console_loader.c"
+    "src/bootloader_panic.c"
     "src/${IDF_TARGET}/bootloader_sha.c"
     "src/${IDF_TARGET}/flash_encrypt.c"
     "src/${IDF_TARGET}/bootloader_${IDF_TARGET}.c"
     )
+    list(APPEND priv_requires hal)
 else()
     list(APPEND srcs
         "src/idf/bootloader_sha.c")
     set(include_dirs "include")
     set(priv_include_dirs "include_bootloader")
-    set(priv_requires spi_flash mbedtls efuse)
+    set(priv_requires spi_flash mbedtls efuse app_update)
 endif()
 
-if(CONFIG_SECURE_SIGNED_APPS_ECDSA_SCHEME OR CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME)
-    if(BOOTLOADER_BUILD)
-        list(APPEND srcs
-        "src/${IDF_TARGET}/secure_boot_signatures.c")
-    else()
-        list(APPEND srcs
-            "src/idf/secure_boot_signatures.c")
+if(BOOTLOADER_BUILD)
+    if(CONFIG_SECURE_SIGNED_ON_BOOT)
+        if(CONFIG_SECURE_SIGNED_APPS_ECDSA_SCHEME)
+            list(APPEND srcs "src/secure_boot_v1/secure_boot_signatures_bootloader.c")
+        endif()
+
+        if(CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME)
+            list(APPEND srcs "src/secure_boot_v2/secure_boot_signatures_bootloader.c")
+        endif()
+    endif()
+else()
+    if(CONFIG_SECURE_SIGNED_ON_UPDATE)
+        if(CONFIG_SECURE_SIGNED_APPS_ECDSA_SCHEME)
+            list(APPEND srcs "src/secure_boot_v1/secure_boot_signatures_app.c")
+        endif()
+
+        if(CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME)
+            list(APPEND srcs "src/secure_boot_v2/secure_boot_signatures_app.c")
+        endif()
     endif()
 endif()
 
@@ -112,4 +130,8 @@ if(CONFIG_SECURE_SIGNED_APPS AND (CONFIG_SECURE_BOOT_V1_ENABLED OR CONFIG_SECURE
     set_property(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         APPEND PROPERTY ADDITIONAL_MAKE_CLEAN_FILES
         "${secure_boot_verification_key}")
+endif()
+
+if(BOOTLOADER_BUILD)
+    target_link_libraries(${COMPONENT_LIB} INTERFACE "-u abort")
 endif()

@@ -192,6 +192,8 @@ function(__kconfig_generate_config sdkconfig sdkconfig_defaults)
     set(config_dir ${build_dir}/config)
     file(MAKE_DIRECTORY "${config_dir}")
 
+    message(STATUS "Project sdkconfig file ${sdkconfig}")
+
     # Generate the config outputs
     set(sdkconfig_cmake ${config_dir}/sdkconfig.cmake)
     set(sdkconfig_header ${config_dir}/sdkconfig.h)
@@ -239,7 +241,6 @@ function(__kconfig_generate_config sdkconfig sdkconfig_defaults)
 
     # Or if the config generation tool changes
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${idf_path}/tools/kconfig_new/confgen.py")
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${idf_path}/tools/kconfig_new/kconfiglib.py")
 
     set_property(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" APPEND PROPERTY
                 ADDITIONAL_MAKE_CLEAN_FILES "${sdkconfig_header}" "${sdkconfig_cmake}")
@@ -256,7 +257,7 @@ function(__kconfig_generate_config sdkconfig sdkconfig_defaults)
 
         set(MENUCONFIG_CMD ${mconf})
     else()
-        set(MENUCONFIG_CMD ${python} ${idf_path}/tools/kconfig_new/menuconfig.py)
+        set(MENUCONFIG_CMD ${python} -m menuconfig)
         set(TERM_CHECK_CMD ${python} ${idf_path}/tools/check_term.py)
     endif()
 

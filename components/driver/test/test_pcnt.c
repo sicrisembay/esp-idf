@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 /**
  * this case is used for test PCNT
  * prepare job for test environment UT_T1_PCNT:
@@ -14,6 +19,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "soc/soc_caps.h"
+#if SOC_PCNT_SUPPORTED
 #include "driver/periph_ctrl.h"
 #include "driver/gpio.h"
 #include "driver/pcnt.h"
@@ -21,7 +28,6 @@
 #include "esp_attr.h"
 #include "esp_log.h"
 #include "soc/gpio_periph.h"
-#include "soc/gpio_caps.h"
 #include "unity.h"
 #include "esp_rom_gpio.h"
 
@@ -604,7 +610,7 @@ TEST_CASE("PCNT interrupt method test(control IO is low)", "[pcnt][timeout=120]"
     TEST_ESP_OK(pcnt_counter_clear(PCNT_UNIT_0));
 
     pcnt_evt_queue = xQueueCreate(10, sizeof(uint32_t));
-    
+
     pcnt_isr_handle_t pcnt_isr_service;
     TEST_ESP_OK(pcnt_isr_register(pcnt_intr_handler, NULL, 0, &pcnt_isr_service));
     TEST_ESP_OK(pcnt_intr_enable(PCNT_UNIT_0));
@@ -670,3 +676,5 @@ TEST_CASE("PCNT counting mode test", "[pcnt]")
     printf("PCNT mode test for negative count\n");
     count_mode_test(PCNT_CTRL_GND_IO);
 }
+
+#endif // #if SOC_PCNT_SUPPORTED

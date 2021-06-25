@@ -1,23 +1,15 @@
-// Copyright 2015-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include <string.h>
 #include <stdint.h>
 #include "sdkconfig.h"
 #include "esp_attr.h"
 #include "esp_log.h"
 #include "bootloader_init.h"
-#include "bootloader_flash.h"
+#include "bootloader_flash_priv.h"
 #include "bootloader_flash_config.h"
 #include "bootloader_random.h"
 #include "bootloader_clock.h"
@@ -100,11 +92,4 @@ void bootloader_print_banner(void)
 {
     ESP_LOGI(TAG, "ESP-IDF %s 2nd stage bootloader", IDF_VER);
     ESP_LOGI(TAG, "compile time " __TIME__);
-}
-
-void __assert_func(const char *file, int line, const char *func, const char *expr)
-{
-    ESP_LOGE(TAG, "Assert failed in %s, %s:%d (%s)", func, file, line, expr);
-    while (1) {
-    }
 }

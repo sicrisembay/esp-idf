@@ -42,7 +42,12 @@ struct dirent {
 #define DT_UNKNOWN  0
 #define DT_REG      1
 #define DT_DIR      2
-    char d_name[256];   /*!< zero-terminated file name */
+#if __BSD_VISIBLE
+#define MAXNAMLEN 255
+    char d_name[MAXNAMLEN+1];   /*!< zero-terminated file name */
+#else
+    char d_name[256];
+#endif
 };
 
 DIR* opendir(const char* name);
@@ -52,4 +57,3 @@ void seekdir(DIR* pdir, long loc);
 void rewinddir(DIR* pdir);
 int closedir(DIR* pdir);
 int readdir_r(DIR* pdir, struct dirent* entry, struct dirent** out_dirent);
-

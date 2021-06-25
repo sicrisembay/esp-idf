@@ -1,16 +1,8 @@
-// Copyright 2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2019-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <string.h>
 #include "esp_log.h"
@@ -21,7 +13,7 @@
 #include "driver/rtc_io.h"
 #include "hal/rtc_io_hal.h"
 
-static const char *RTCIO_TAG = "RTCIO";
+static const char __attribute__((__unused__)) *RTCIO_TAG = "RTCIO";
 
 #define RTCIO_CHECK(a, str, ret_val) ({                                             \
     if (!(a)) {                                                                     \
@@ -33,6 +25,8 @@ static const char *RTCIO_TAG = "RTCIO";
 extern portMUX_TYPE rtc_spinlock; //TODO: Will be placed in the appropriate position after the rtc module is finished.
 #define RTCIO_ENTER_CRITICAL()  portENTER_CRITICAL(&rtc_spinlock)
 #define RTCIO_EXIT_CRITICAL()  portEXIT_CRITICAL(&rtc_spinlock)
+
+#if SOC_RTCIO_INPUT_OUTPUT_SUPPORTED
 
 /*---------------------------------------------------------------
                         RTC IO
@@ -156,13 +150,16 @@ esp_err_t rtc_gpio_pulldown_dis(gpio_num_t gpio_num)
     return ESP_OK;
 }
 
+#endif // SOC_RTCIO_INPUT_OUTPUT_SUPPORTED
+
+#if SOC_RTCIO_HOLD_SUPPORTED
+
 esp_err_t rtc_gpio_hold_en(gpio_num_t gpio_num)
 {
     RTCIO_CHECK(rtc_gpio_is_valid_gpio(gpio_num), "RTCIO number error", ESP_ERR_INVALID_ARG);
     RTCIO_ENTER_CRITICAL();
     rtcio_hal_hold_enable(rtc_io_number_get(gpio_num));
     RTCIO_EXIT_CRITICAL();
-
     return ESP_OK;
 }
 
@@ -172,7 +169,6 @@ esp_err_t rtc_gpio_hold_dis(gpio_num_t gpio_num)
     RTCIO_ENTER_CRITICAL();
     rtcio_hal_hold_disable(rtc_io_number_get(gpio_num));
     RTCIO_EXIT_CRITICAL();
-
     return ESP_OK;
 }
 
@@ -204,6 +200,10 @@ esp_err_t rtc_gpio_force_hold_dis_all(void)
     return ESP_OK;
 }
 
+#endif // SOC_RTCIO_HOLD_SUPPORTED
+
+#if SOC_RTCIO_WAKE_SUPPORTED
+
 esp_err_t rtc_gpio_wakeup_enable(gpio_num_t gpio_num, gpio_int_type_t intr_type)
 {
     RTCIO_CHECK(rtc_gpio_is_valid_gpio(gpio_num), "RTCIO number error", ESP_ERR_INVALID_ARG);
@@ -213,7 +213,6 @@ esp_err_t rtc_gpio_wakeup_enable(gpio_num_t gpio_num, gpio_int_type_t intr_type)
     RTCIO_ENTER_CRITICAL();
     rtcio_hal_wakeup_enable(rtc_io_number_get(gpio_num), intr_type);
     RTCIO_EXIT_CRITICAL();
-
     return ESP_OK;
 }
 
@@ -223,6 +222,7 @@ esp_err_t rtc_gpio_wakeup_disable(gpio_num_t gpio_num)
     RTCIO_ENTER_CRITICAL();
     rtcio_hal_wakeup_disable(rtc_io_number_get(gpio_num));
     RTCIO_EXIT_CRITICAL();
-
     return ESP_OK;
 }
+
+#endif // SOC_RTCIO_WAKE_SUPPORTED

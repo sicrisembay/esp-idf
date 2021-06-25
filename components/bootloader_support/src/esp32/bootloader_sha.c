@@ -1,16 +1,8 @@
-// Copyright 2017 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2017-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include "bootloader_sha.h"
 #include <stdbool.h>
 #include <string.h>
@@ -55,7 +47,7 @@ void bootloader_sha256_data(bootloader_sha256_handle_t handle, const void *data,
         while (REG_READ(SHA_256_BUSY_REG) != 0) { }
 
         // Copy to memory block
-        for (int i = 0; i < copy_words; i++) {
+        for (size_t i = 0; i < copy_words; i++) {
             sha_text_reg[block_count + i] = __builtin_bswap32(w[i]);
         }
         asm volatile ("memw");
@@ -117,7 +109,7 @@ void bootloader_sha256_finish(bootloader_sha256_handle_t handle, uint8_t *digest
 
     uint32_t *digest_words = (uint32_t *)digest;
     uint32_t *sha_text_reg = (uint32_t *)(SHA_TEXT_BASE);
-    for (int i = 0; i < DIGEST_WORDS; i++) {
+    for (size_t i = 0; i < DIGEST_WORDS; i++) {
         digest_words[i] = __builtin_bswap32(sha_text_reg[i]);
     }
     asm volatile ("memw");

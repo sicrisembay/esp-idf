@@ -7,12 +7,12 @@ components/xtensa/esp32/include/xtensa/config/
 components/newlib/platform_include/
 
 components/freertos/include/freertos/
-components/freertos/xtensa/include/freertos/
+components/freertos/port/xtensa/include/freertos/
 
 
 components/log/include/esp_log_internal.h
 
-components/soc/include/hal/
+components/hal/
 components/soc/include/soc/
 
 components/esp_rom/include/esp32s2/rom/rsa_pss.h
@@ -20,7 +20,6 @@ components/esp_rom/include/esp32s2/rom/rsa_pss.h
 components/esp_common/include/esp_private/
 
 components/esp32/include/esp32/brownout.h
-components/esp32/include/esp32/spiram.h
 components/esp32/include/esp32/cache_err_int.h
 
 components/driver/include/driver/sdmmc_defs.h
@@ -30,17 +29,16 @@ components/lwip/include/apps/dhcpserver/dhcpserver_options.h
 components/lwip/include/apps/dhcpserver/dhcpserver.h
 
 components/lwip/lwip/src/include/lwip/priv/memp_std.h
-components/lwip/port/esp32/include/arch/cc.h
-components/lwip/port/esp32/include/debug/lwip_debug.h
-components/lwip/port/esp32/include/arch/cc.h
 
 components/vfs/include/sys/dirent.h
 
-components/esp_wifi/esp32/include/phy_init_data.h
+components/esp_phy/esp32/include/phy_init_data.h
 
 components/spi_flash/include/spi_flash_chip_issi.h
 components/spi_flash/include/spi_flash_chip_mxic.h
 components/spi_flash/include/spi_flash_chip_gd.h
+components/spi_flash/include/spi_flash_chip_winbond.h
+components/spi_flash/include/spi_flash_chip_boya.h
 components/spi_flash/include/memspi_host_driver.h
 components/spi_flash/include/spi_flash_chip_driver.h
 components/spi_flash/include/spi_flash_chip_generic.h
@@ -52,8 +50,6 @@ components/wpa_supplicant/port/
 
 components/mbedtls/port/include/
 components/mbedtls/mbedtls/include/mbedtls/
-
-components/espcoredump/include/esp_core_dump.h
 
 components/coap/
 components/nghttp/
@@ -82,8 +78,16 @@ components/libsodium/
 components/spiffs/include/spiffs_config.h
 
 components/unity/unity/src/unity_internals.h
+components/unity/unity/extras/
 components/unity/include/unity_config.h
 components/unity/include/unity_test_runner.h
+
+components/cmock/CMock/src/cmock.h
+components/cmock/CMock/src/cmock_internals.h
+
+components/efuse/include/esp_efuse.h
+
+components/openthread/openthread/
 
 ### Here are the files that do not compile for some reason
 #
@@ -103,19 +107,15 @@ components/esp_common/include/esp_compiler.h
 components/lwip/lwip/src/include/lwip/prot/nd6.h
 components/lwip/port/esp32/include/netif/dhcp_state.h
 components/soc/src/esp32/rtc_clk_common.h
-components/soc/src/esp32/i2c_rtc_clk.h
-components/soc/src/esp32/include/hal/cpu_ll.h
-components/soc/src/esp32/include/hal/timer_ll.h
-components/soc/src/esp32/include/hal/cpu_ll.h
-components/soc/src/esp32/include/hal/timer_ll.h
+components/esp_hw_support/port/esp32/regi2c_ctrl.h
 components/esp_rom/include/esp32/rom/sha.h
 components/esp_rom/include/esp32/rom/secure_boot.h
+components/esp_rom/include/esp32c3/rom/spi_flash.h
 components/esp_rom/include/esp32s2/rom/spi_flash.h
 components/esp_rom/include/esp32s2/rom/cache.h
 components/esp_rom/include/esp32s2/rom/secure_boot.h
 components/esp_rom/include/esp32s2/rom/opi_flash.h
 components/esp_rom/include/esp32s2/rom/efuse.h
-components/esp_common/include/esp_freertos_hooks.h
 components/esp32/include/esp32/dport_access.h
 components/esp32/include/rom/sha.h
 components/esp32/include/rom/secure_boot.h
@@ -148,4 +148,3 @@ components/ulp/include/esp32s2/ulp_riscv.h
 components/lwip/include/apps/sntp/sntp.h
 components/mbedtls/esp_crt_bundle/include/esp_crt_bundle.h
 components/wifi_provisioning/include/wifi_provisioning/scheme_softap.h
-

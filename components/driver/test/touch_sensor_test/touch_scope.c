@@ -1,16 +1,8 @@
-// Copyright 2015-2020 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <string.h>
 #include "esp_err.h"
@@ -22,7 +14,7 @@
 #if ROM_UART_DRIVER_ENABLE
 static uint8_t scope_uart_num = 0;
 static int8_t uart_used = 0;
-#else 
+#else
 static uint8_t scope_uart_num = 255;
 static int8_t uart_used = -1;
 #endif
@@ -127,7 +119,7 @@ int test_tp_print_to_scope(float *data, unsigned char channel_num)
     if(uart_num != uart_used) {
         return 0;
     } else {
-#if ROM_UART_DRIVER_ENABLE  
+#if ROM_UART_DRIVER_ENABLE
         esp_rom_uart_tx_wait_idle(uart_num);   // Default print uart mumber is 0.
         for(int i=0; i<out_len; i++) {
             esp_rom_uart_tx_one_char(out_data[i]);
@@ -161,7 +153,7 @@ int test_tp_print_to_scope(float *data, unsigned char channel_num)
   */
 esp_err_t test_tp_scope_debug_init(uint8_t uart_num, int tx_io_num, int rx_io_num, int baud_rate)
 {
-#if ROM_UART_DRIVER_ENABLE    
+#if ROM_UART_DRIVER_ENABLE
     esp_rom_uart_tx_wait_idle(0);   // Default print uart mumber is 0.
     if(uart_num != 0) {
         esp_rom_uart_set_as_console(uart_num);

@@ -4,7 +4,7 @@ FreeRTOS Additions
 Overview
 --------
 
-ESP-IDF FreeRTOS is based on the Xtensa port of FreeRTOS v8.2.0 with significant modifications
+ESP-IDF FreeRTOS is based on the Xtensa port of FreeRTOS v10.2.0 with significant modifications
 for SMP compatibility (see :doc:`ESP-IDF FreeRTOS SMP Changes<../../api-guides/freertos-smp>`).
 However various features specific to ESP-IDF FreeRTOS have been added. The features are as follows:
 
@@ -25,11 +25,11 @@ Ring Buffers
 The ESP-IDF FreeRTOS ring buffer is a strictly FIFO buffer that supports arbitrarily sized items.
 Ring buffers are a more memory efficient alternative to FreeRTOS queues in situations where the
 size of items is variable. The capacity of a ring buffer is not measured by the number of items
-it can store, but rather by the amount of memory used for storing items. You may apply for a
-piece of memory on the ring buffer to send an item, or just use the API to copy your data and send
-(according to the send API you call). For efficiency reasons,
+it can store, but rather by the amount of memory used for storing items. The ring buffer provides API 
+to send an item, or to allocate space for an item in the ring buffer to be filled manually by the user. 
+For efficiency reasons,
 **items are always retrieved from the ring buffer by reference**. As a result, all retrieved
-items *must also be returned* in order for them to be removed from the ring buffer completely.
+items *must also be returned* to the ring buffer by using :cpp:func:`vRingbufferReturnItem` or :cpp:func:`vRingbufferReturnItemFromISR`, in order for them to be removed from the ring buffer completely.
 The ring buffers are split into the three following types:
 
 **No-Split** buffers will guarantee that an item is stored in contiguous memory and will not
@@ -413,9 +413,6 @@ The :cpp:func:`xRingbufferCreateStatic` can be used to create ring buffers with 
 The manner in which these blocks are allocated will depend on the users requirements (e.g. all blocks being statically declared, or dynamically allocated with specific capabilities such as external RAM).
 
 .. note::
-    The :ref:`CONFIG_FREERTOS_SUPPORT_STATIC_ALLOCATION` option must be enabled in `menuconfig` for statically allocated ring buffers to be available.
-
-.. note::
     When deleting a ring buffer created via :cpp:func:`xRingbufferCreateStatic`,
     the function :cpp:func:`vRingbufferDelete` will not free any of the memory blocks. This must be done manually by the user after :cpp:func:`vRingbufferDelete` is called.
 
@@ -505,6 +502,9 @@ Due to vanilla FreeRTOS being designed for single core, ``vApplicationIdleHook()
 and ``vApplicationTickHook()`` can only be defined once. However, the ESP32 is dual core
 in nature, therefore same Idle Hook and Tick Hook are used for both cores (in other words,
 the hooks are symmetrical for both cores).
+
+In a dual core system, ``vApplicationTickHook()`` must be located in IRAM (for example
+by adding the IRAM_ATTR attribute).
 
 ESP-IDF Idle and Tick Hooks
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^

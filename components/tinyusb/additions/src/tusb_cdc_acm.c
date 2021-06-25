@@ -13,14 +13,15 @@
 // limitations under the License.
 
 #include <stdint.h>
+#include "esp_check.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "tusb.h"
 #include "tusb_cdc_acm.h"
 #include "cdc.h"
 #include "sdkconfig.h"
-
-#define ESP_RETURN_ON_ERROR(x) do{esp_err_t r = (x); if (r != ESP_OK) return r;} while(0)
 
 #define RX_UNREADBUF_SZ_DEFAULT 64 // buffer storing all unread RX data
 
@@ -29,12 +30,12 @@ typedef struct {
     bool initialized;
     size_t rx_unread_buf_sz;
     RingbufHandle_t rx_unread_buf;
+    xSemaphoreHandle ringbuf_read_mux;
     uint8_t *rx_tfbuf;
     tusb_cdcacm_callback_t callback_rx;
     tusb_cdcacm_callback_t callback_rx_wanted_char;
     tusb_cdcacm_callback_t callback_line_state_changed;
     tusb_cdcacm_callback_t callback_line_coding_changed;
-    xTimerHandle flush_timer;
 } esp_tusb_cdcacm_t; /*!< CDC_AMC object */
 
 static const char *TAG = "tusb_cdc_acm";
@@ -52,7 +53,7 @@ static inline esp_tusb_cdcacm_t *get_acm(tinyusb_cdcacm_itf_t itf)
 /* TinyUSB callbacks
    ********************************************************************* */
 
-/* Invoked when cdc when line state changed e.g connected/disconnected */
+/* Invoked by cdc interface when line state changed e.g connected/disconnected */
 void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
 {
     esp_tusb_cdcacm_t *acm = get_acm(itf);
@@ -225,22 +226,58 @@ esp_err_t tinyusb_cdcacm_unregister_callback(tinyusb_cdcacm_itf_t itf,
 /*********************************************************************** TinyUSB callbacks*/
 /* CDC-ACM
    ********************************************************************* */
+
+static esp_err_t read_from_rx_unread_to_buffer(esp_tusb_cdcacm_t *acm, uint8_t *out_buf, size_t req_bytes, size_t *read_bytes)
+{
+    uint8_t *buf = xRingbufferReceiveUpTo(acm->rx_unread_buf, read_bytes, 0, req_bytes);
+    if (buf) {
+        memcpy(out_buf, buf, *read_bytes);
+        vRingbufferReturnItem(acm->rx_unread_buf, (void *)(buf));
+        return ESP_OK;
+    } else {
+        return ESP_ERR_NO_MEM;
+    }
+}
+
+static esp_err_t ringbuf_mux_take(esp_tusb_cdcacm_t *acm)
+{
+    if (xSemaphoreTake(acm->ringbuf_read_mux, 0) != pdTRUE) {
+        ESP_LOGW(TAG, "Read error: ACM is busy");
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t ringbuf_mux_give(esp_tusb_cdcacm_t *acm)
+{
+    BaseType_t ret = xSemaphoreGive(acm->ringbuf_read_mux);
+    assert(ret == pdTRUE);
+    return ESP_OK;
+}
+
 esp_err_t tinyusb_cdcacm_read(tinyusb_cdcacm_itf_t itf, uint8_t *out_buf, size_t out_buf_sz, size_t *rx_data_size)
 {
     esp_tusb_cdcacm_t *acm = get_acm(itf);
-    if (!acm) {
-        ESP_LOGE(TAG, "Interface is not initialized. Use `tinyusb_cdc_init` for initialization");
-        return ESP_ERR_INVALID_STATE;
+    ESP_RETURN_ON_FALSE(acm, ESP_ERR_INVALID_STATE, TAG, "Interface is not initialized. Use `tinyusb_cdc_init` for initialization");
+    size_t read_sz;
+
+    /* Take a mutex to proceed two uninterrupted read operations */
+    ESP_RETURN_ON_ERROR(ringbuf_mux_take(acm), TAG, "ringbuf_mux_take failed");
+
+    esp_err_t res = read_from_rx_unread_to_buffer(acm, out_buf, out_buf_sz, &read_sz);
+    if (res != ESP_OK) {
+        ESP_RETURN_ON_ERROR(ringbuf_mux_give(acm), TAG, "ringbuf_mux_give failed");
+        return res;
     }
-    uint8_t *buf = xRingbufferReceiveUpTo(acm->rx_unread_buf, rx_data_size, 0, out_buf_sz);
-    if (buf) {
-        memcpy(out_buf, buf, *rx_data_size);
-        vRingbufferReturnItem(acm->rx_unread_buf, (void *)buf);
-        return ESP_OK;
-    } else {
-        ESP_LOGE(TAG, "Failed to receive item");
-        return ESP_ERR_NO_MEM;
+
+    *rx_data_size = read_sz;
+    /* Buffer's data can be wrapped, at that situations we should make another retrievement */
+    if (read_from_rx_unread_to_buffer(acm, out_buf + read_sz, out_buf_sz - read_sz, &read_sz) == ESP_OK) {
+        *rx_data_size += read_sz;
     }
+
+    ESP_RETURN_ON_ERROR(ringbuf_mux_give(acm), TAG, "ringbuf_mux_give failed");
+    return ESP_OK;
 }
 
 
@@ -261,33 +298,10 @@ size_t tinyusb_cdcacm_write_queue(tinyusb_cdcacm_itf_t itf, uint8_t *in_buf, siz
     return tud_cdc_n_write(itf, in_buf, in_size);
 }
 
-
-static inline bool timer_isactive(tinyusb_cdcacm_itf_t itf)
+static uint32_t tud_cdc_n_write_occupied(tinyusb_cdcacm_itf_t itf)
 {
-    esp_tusb_cdcacm_t *acm = get_acm(itf);
-    return xTimerIsTimerActive(acm->flush_timer);
+    return CFG_TUD_CDC_TX_BUFSIZE - tud_cdc_n_write_available(itf);
 }
-
-static inline esp_err_t timer_start(tinyusb_cdcacm_itf_t itf, uint32_t timeout_ticks)
-{
-    esp_tusb_cdcacm_t *acm = get_acm(itf);
-    xTimerChangePeriod(acm->flush_timer, timeout_ticks, 0); // set the timer
-    if (!xTimerIsTimerActive(acm->flush_timer)) {
-        if (xTimerStart(acm->flush_timer, 0) != pdPASS) { // start
-            ESP_LOGE(TAG, "Can't start the timer");
-            return ESP_FAIL;
-        }
-    }
-    return ESP_OK;
-}
-
-static inline void timer_stop(tinyusb_cdcacm_itf_t itf)
-{
-    if (timer_isactive(itf)) {
-        xTimerStop(get_acm(itf)->flush_timer, 0);
-    }
-}
-
 
 esp_err_t tinyusb_cdcacm_write_flush(tinyusb_cdcacm_itf_t itf, uint32_t timeout_ticks)
 {
@@ -298,38 +312,34 @@ esp_err_t tinyusb_cdcacm_write_flush(tinyusb_cdcacm_itf_t itf, uint32_t timeout_
     if (!timeout_ticks) { // if no timeout - nonblocking mode
         int res = tud_cdc_n_write_flush(itf);
         if (!res) {
+            ESP_LOGW(TAG, "flush fauled (res: %d)", res);
             return ESP_FAIL;
         } else {
-            if (tud_cdc_n_write_available(itf)) {
+            if (tud_cdc_n_write_occupied(itf)) {
+                ESP_LOGW(TAG, "remained data to flush!");
                 return ESP_FAIL;
             }
         }
         return ESP_ERR_TIMEOUT;
-    } else { // if timeout use timer
-        ESP_RETURN_ON_ERROR(timer_start(itf, timeout_ticks));
+    } else { // trying during the timeout
+        uint32_t ticks_start = xTaskGetTickCount();
+        uint32_t ticks_now = ticks_start;
         while (1) { // loop until success or until the time runs out
-            if (!tud_cdc_n_write_available(itf)) { // if nothing to write - nothing to flush
+            ticks_now = xTaskGetTickCount();
+            if (!tud_cdc_n_write_occupied(itf)) { // if nothing to write - nothing to flush
                 break;
             }
             if (tud_cdc_n_write_flush(itf)) { // Success
                 break;
             }
-            if (!timer_isactive(itf)) { // Time is up
+            if ( (ticks_now - ticks_start) > timeout_ticks ) { // Time is up
                 ESP_LOGW(TAG, "Flush failed");
                 return ESP_ERR_TIMEOUT;
             }
             vTaskDelay(1);
         }
-        timer_stop(itf);
         return ESP_OK;
     }
-}
-
-
-static void flush_timer_cb(xTimerHandle pxTimer)
-{
-    ESP_LOGV(TAG, "flush_timer stopped");
-    xTimerStop(pxTimer, 0);
 }
 
 static esp_err_t alloc_obj(tinyusb_cdcacm_itf_t itf)
@@ -359,8 +369,8 @@ esp_err_t tusb_cdc_acm_init(const tinyusb_config_cdcacm_t *cfg)
         .cdc_class = TUSB_CLASS_CDC,
         .cdc_subclass.comm_subclass = CDC_COMM_SUBCLASS_ABSTRACT_CONTROL_MODEL
     };
-    ESP_RETURN_ON_ERROR(tinyusb_cdc_init(itf, &cdc_cfg));
-    ESP_RETURN_ON_ERROR(alloc_obj(itf));
+    ESP_RETURN_ON_ERROR(tinyusb_cdc_init(itf, &cdc_cfg), TAG, "tinyusb_cdc_init failed");
+    ESP_RETURN_ON_ERROR(alloc_obj(itf), TAG, "alloc_obj failed");
 
     esp_tusb_cdcacm_t *acm = get_acm(itf);
     /* Callbacks setting up*/
@@ -377,11 +387,15 @@ esp_err_t tusb_cdc_acm_init(const tinyusb_config_cdcacm_t *cfg)
         tinyusb_cdcacm_register_callback( itf, CDC_EVENT_LINE_CODING_CHANGED, cfg->callback_line_coding_changed);
     }
 
-    /* SW timer*/
-    acm->flush_timer = xTimerCreate(
-                           "flush_timer", 10 / portTICK_PERIOD_MS, pdTRUE, (void *)itf, flush_timer_cb);
-
     /* Buffers */
+
+    acm->ringbuf_read_mux = xSemaphoreCreateMutex();
+    if (acm->ringbuf_read_mux == NULL) {
+        ESP_LOGE(TAG, "Creation of a ringbuf mutex failed");
+        free_obj(itf);
+        return ESP_ERR_NO_MEM;
+    }
+
     acm->rx_tfbuf = malloc(CONFIG_USB_CDC_RX_BUFSIZE);
     if (!acm->rx_tfbuf) {
         ESP_LOGE(TAG, "Creation buffer error");

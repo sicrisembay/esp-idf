@@ -34,17 +34,7 @@ static esp_err_t i2c_get_port(int port, i2c_port_t *i2c_port)
         ESP_LOGE(TAG, "Wrong port number: %d", port);
         return ESP_FAIL;
     }
-    switch (port) {
-    case 0:
-        *i2c_port = I2C_NUM_0;
-        break;
-    case 1:
-        *i2c_port = I2C_NUM_1;
-        break;
-    default:
-        *i2c_port = I2C_NUM_0;
-        break;
-    }
+    *i2c_port = port;
     return ESP_OK;
 }
 
@@ -56,7 +46,8 @@ static esp_err_t i2c_master_driver_initialize(void)
         .sda_pullup_en = GPIO_PULLUP_ENABLE,
         .scl_io_num = i2c_gpio_scl,
         .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = i2c_frequency
+        .master.clk_speed = i2c_frequency,
+        // .clk_flags = 0,          /*!< Optional, you can use I2C_SCLK_SRC_FLAG_* flags to choose i2c source clock here. */
     };
     return i2c_param_config(i2c_port, &conf);
 }

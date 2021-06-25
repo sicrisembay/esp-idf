@@ -1,20 +1,12 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <strings.h>
 
-#include "bootloader_flash.h"
+#include "bootloader_flash_priv.h"
 #include "esp_image_format.h"
 #include "esp_flash_encrypt.h"
 #include "esp_flash_partitions.h"
@@ -252,9 +244,7 @@ static esp_err_t encrypt_bootloader(void)
         ESP_LOGD(TAG, "bootloader is plaintext. Encrypting...");
 
 #if CONFIG_SECURE_BOOT_V2_ENABLED
-        // Account for the signature sector after the bootloader
-        image_length = (image_length + FLASH_SECTOR_SIZE - 1) & ~(FLASH_SECTOR_SIZE - 1);
-        image_length += FLASH_SECTOR_SIZE;
+        /* The image length obtained from esp_image_verify_bootloader includes the sector boundary padding and the signature block lengths */
         if (ESP_BOOTLOADER_OFFSET + image_length > ESP_PARTITION_TABLE_OFFSET) {
             ESP_LOGE(TAG, "Bootloader is too large to fit Secure Boot V2 signature sector and partition table (configured offset 0x%x)", ESP_PARTITION_TABLE_OFFSET);
             return ESP_ERR_INVALID_STATE;

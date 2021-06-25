@@ -92,7 +92,7 @@ menu "Wi-Fi"
 
     config ESP32_WIFI_CACHE_TX_BUFFER_NUM
         int "Max number of WiFi cache TX buffers"
-        depends on (ESP32_SPIRAM_SUPPORT || ESP32S2_SPIRAM_SUPPORT)
+        depends on (ESP32_SPIRAM_SUPPORT || ESP32S2_SPIRAM_SUPPORT || ESP32S3_SPIRAM_SUPPORT)
         range 16 128
         default 32
         help
@@ -162,6 +162,13 @@ menu "Wi-Fi"
             recommended value is 9~12. If PSRAM is used and WiFi memory is prefered to allocat in PSRAM first,
             the default and minimum value should be 16 to achieve better throughput and compatibility with both
             stations and APs.
+
+    config ESP32_WIFI_AMSDU_TX_ENABLED
+        bool "WiFi AMSDU TX"
+        depends on (ESP32_SPIRAM_SUPPORT || ESP32S2_SPIRAM_SUPPORT || ESP32S3_SPIRAM_SUPPORT)
+        default n
+        help
+            Select this option to enable AMSDU TX feature
 
     config ESP32_WIFI_NVS_ENABLED
         bool "WiFi NVS flash"
@@ -314,80 +321,54 @@ menu "Wi-Fi"
             PMF (Protected Management Frames) is a prerequisite feature for a WPA3 connection, it needs to be
             explicitly configured before attempting connection. Please refer to the Wi-Fi Driver API Guide for details.
 
-endmenu  # Wi-Fi
-
-menu "PHY"
-
-    config ESP32_PHY_CALIBRATION_AND_DATA_STORAGE
-        # ToDo: remove target dependency once NVS and PHY partial calibration are supported
-        # also re-enable the <RF_calibration> entry in docs/../api-guides/index.rst
-        depends on IDF_TARGET_ESP32
-        bool "Store phy calibration data in NVS"
-        default y
+    config ESP_WIFI_SLP_IRAM_OPT
+        bool "WiFi SLP IRAM speed optimization"
+        select PM_SLP_DEFAULT_PARAMS_OPT
         help
-            If this option is enabled, NVS will be initialized and calibration data will be loaded from there.
-            PHY calibration will be skipped on deep sleep wakeup. If calibration data is not found, full calibration
-            will be performed and stored in NVS. Normally, only partial calibration will be performed.
-            If this option is disabled, full calibration will be performed.
+            Select this option to place called Wi-Fi library TBTT process and receive beacon functions in IRAM.
+            Some functions can be put in IRAM either by ESP32_WIFI_IRAM_OPT and ESP32_WIFI_RX_IRAM_OPT, or this one.
+            If already enabled ESP32_WIFI_IRAM_OPT, the other 7.3KB IRAM memory would be taken by this option.
+            If already enabled ESP32_WIFI_RX_IRAM_OPT, the other 1.3KB IRAM memory would be taken by this option.
+            If neither of them are enabled, the other 7.4KB IRAM memory would be taken by this option.
+            Wi-Fi power-save mode average current would be reduced if this option is enabled.
 
-            If it's easy that your board calibrate bad data, choose 'n'.
-            Two cases for example, you should choose 'n':
-            1.If your board is easy to be booted up with antenna disconnected.
-            2.Because of your board design, each time when you do calibration, the result are too unstable.
-            If unsure, choose 'y'.
+    config ESP_WIFI_SLP_DEFAULT_MIN_ACTIVE_TIME
+        int "Minimum active time"
+        range 8 60
+        default 50
+        depends on ESP_WIFI_SLP_IRAM_OPT
+        help
+            The minimum timeout for waiting to receive data, unit: milliseconds.
 
-    menuconfig ESP32_PHY_INIT_DATA_IN_PARTITION
-        bool "Use a partition to store PHY init data"
+    config ESP_WIFI_SLP_DEFAULT_MAX_ACTIVE_TIME
+        int "Maximum keep alive time"
+        range 10 60
+        default 10
+        depends on ESP_WIFI_SLP_IRAM_OPT
+        help
+            The maximum time that wifi keep alive, unit: seconds.
+
+    config ESP_WIFI_FTM_ENABLE
+        bool "WiFi FTM"
         default n
+        depends on (IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32C3)
         help
-            If enabled, PHY init data will be loaded from a partition.
-            When using a custom partition table, make sure that PHY data
-            partition is included (type: 'data', subtype: 'phy').
-            With default partition tables, this is done automatically.
-            If PHY init data is stored in a partition, it has to be flashed there,
-            otherwise runtime error will occur.
+            Enable feature Fine Timing Measurement for calculating WiFi Round-Trip-Time (RTT).
 
-            If this option is not enabled, PHY init data will be embedded
-            into the application binary.
+    config ESP_WIFI_FTM_INITIATOR_SUPPORT
+        bool "FTM Initiator support"
+        default y
+        depends on ESP_WIFI_FTM_ENABLE
 
-            If unsure, choose 'n'.
+    config ESP_WIFI_FTM_RESPONDER_SUPPORT
+        bool "FTM Responder support"
+        default y
+        depends on ESP_WIFI_FTM_ENABLE
 
-    if ESP32_PHY_INIT_DATA_IN_PARTITION
-        config ESP32_SUPPORT_MULTIPLE_PHY_INIT_DATA_BIN
-            bool "Support multiple PHY init data bin"
-            depends on ESP32_PHY_INIT_DATA_IN_PARTITION
-            default n
-            help
-                If enabled, the corresponding PHY init data type can be automatically switched
-                according to the country code. China's PHY init data bin is used by default.
-                Can be modified by country information in API esp_wifi_set_country().
-                The priority of switching the PHY init data type is:
-                1. Country configured by API esp_wifi_set_country()
-                and the parameter policy is WIFI_COUNTRY_POLICY_MANUAL.
-                2. Country notified by the connected AP.
-                3. Country configured by API esp_wifi_set_country()
-                and the parameter policy is WIFI_COUNTRY_POLICY_AUTO.
-
-        config ESP32_PHY_INIT_DATA_ERROR
-            bool "Terminate operation when PHY init data error"
-            depends on ESP32_SUPPORT_MULTIPLE_PHY_INIT_DATA_BIN
-            default n
-            help
-                If enabled, when an error occurs while the PHY init data is updated,
-                the program will terminate and restart.
-                If not enabled, the PHY init data will not be updated when an error occurs.
-    endif
-
-    config ESP32_PHY_MAX_WIFI_TX_POWER
-        int "Max WiFi TX power (dBm)"
-        range 10 20
-        default 20
+    config ESP_WIFI_STA_DISCONNECTED_PM_ENABLE
+        bool "Power Management for station at disconnected"
         help
-            Set maximum transmit power for WiFi radio. Actual transmit power for high
-            data rates may be lower than this setting.
+            Select this option to enable power_management for station when disconnected.
+            Chip will do modem-sleep when rf module is not in use any more.
 
-    config ESP32_PHY_MAX_TX_POWER
-        int
-        default ESP32_PHY_MAX_WIFI_TX_POWER
-
-endmenu  # PHY
+endmenu  # Wi-Fi

@@ -1,16 +1,8 @@
-// Copyright 2015-2017 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -541,7 +533,7 @@ static esp_err_t poll_busy(slot_info_t *slot, int timeout_ms, bool polling)
     };
     esp_err_t ret;
 
-    uint64_t t_end = esp_timer_get_time() + timeout_ms * 1000;
+    int64_t t_end = esp_timer_get_time() + timeout_ms * 1000;
     int nonzero_count = 0;
     do {
         t_rx = SDSPI_MOSI_IDLE_VAL;
@@ -576,7 +568,7 @@ static esp_err_t poll_data_token(slot_info_t *slot, uint8_t *extra_ptr, size_t *
         .length = sizeof(t_rx) * 8,
     };
     esp_err_t ret;
-    uint64_t t_end = esp_timer_get_time() + timeout_ms * 1000;
+    int64_t t_end = esp_timer_get_time() + timeout_ms * 1000;
     do {
         memset(t_rx, SDSPI_MOSI_IDLE_VAL, sizeof(t_rx));
         ret = spi_device_polling_transmit(slot->spi_handle, &t);
@@ -584,7 +576,7 @@ static esp_err_t poll_data_token(slot_info_t *slot, uint8_t *extra_ptr, size_t *
             return ret;
         }
         bool found = false;
-        for (int byte_idx = 0; byte_idx < sizeof(t_rx); byte_idx++) {
+        for (size_t byte_idx = 0; byte_idx < sizeof(t_rx); byte_idx++) {
             uint8_t rd_data = t_rx[byte_idx];
             if (rd_data == TOKEN_BLOCK_START) {
                 found = true;
@@ -704,7 +696,7 @@ static esp_err_t start_command_read_blocks(slot_info_t *slot, sdspi_hw_cmd_t *cm
         const uint8_t* extra_data_ptr = NULL;
         bool need_poll = true;
 
-        for (int i = 0; i < pre_scan_data_size; ++i) {
+        for (size_t i = 0; i < pre_scan_data_size; ++i) {
             if (pre_scan_data_ptr[i] == TOKEN_BLOCK_START) {
                 extra_data_size = pre_scan_data_size - i - 1;
                 extra_data_ptr = pre_scan_data_ptr + i + 1;
@@ -993,7 +985,7 @@ esp_err_t sdspi_host_init_slot(int slot, const sdspi_slot_config_t* slot_config)
     if (ret != ESP_OK) {
         goto cleanup;
     }
-    if (sdspi_handle != host_id) {
+    if (sdspi_handle != (int)host_id) {
         ESP_LOGE(TAG, "The deprecated sdspi_host_init_slot should be called before all other devices on the specified bus.");
         sdspi_host_remove_device(sdspi_handle);
         ret = ESP_ERR_INVALID_STATE;

@@ -42,9 +42,9 @@ extern "C" {
 #   endif
 
 #   if CFG_TUD_CDC
-#      if (CFG_TUD_CDC_EPSIZE < 4)
-#         define CFG_TUD_CDC_EPSIZE 4
-#         warning "CFG_TUD_CDC_EPSIZE was too low and was set to 4"
+#      if (CFG_TUD_CDC_EP_BUFSIZE < 4)
+#         define CFG_TUD_CDC_EP_BUFSIZE 4
+#         warning "CFG_TUD_CDC_EP_BUFSIZE was too low and was set to 4"
 #      endif
 #   endif
 
@@ -71,9 +71,9 @@ extern "C" {
  * @brief Configuration structure of the tinyUSB core
  */
 typedef struct {
-    tusb_desc_device_t *descriptor;
-    char **string_descriptor;
-    bool external_phy;
+    tusb_desc_device_t *descriptor; /*!< Pointer to a device descriptor */
+    char **string_descriptor;       /*!< Pointer to an array of string descriptors */
+    bool external_phy;              /*!< Should USB use an external PHY */
 } tinyusb_config_t;
 
 esp_err_t tinyusb_driver_install(const tinyusb_config_t *config);

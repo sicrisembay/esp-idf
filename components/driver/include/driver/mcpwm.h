@@ -1,24 +1,13 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-#ifndef _DRIVER_MCPWM_H_
-#define _DRIVER_MCPWM_H_
+#pragma once
 
 #include "soc/soc_caps.h"
-#ifndef SOC_MCPWM_SUPPORTED
-#error MCPWM is not supported in this chip target
-#endif
+#if SOC_MCPWM_SUPPORTED
 
 #include "esp_err.h"
 #include "soc/soc.h"
@@ -26,7 +15,6 @@
 #include "driver/periph_ctrl.h"
 #include "esp_intr_alloc.h"
 #include "hal/mcpwm_types.h"
-#include "soc/mcpwm_caps.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -90,7 +78,7 @@ typedef enum {
     MCPWM_UNIT_MAX,    /*!<Num of MCPWM units on ESP32*/
 } mcpwm_unit_t;
 
-_Static_assert(MCPWM_UNIT_MAX == SOC_MCPWM_PERIPH_NUM, "MCPWM unit number not equal to chip capabilities");
+_Static_assert(MCPWM_UNIT_MAX == SOC_MCPWM_GROUPS, "MCPWM unit number not equal to chip capabilities");
 
 /**
  * @brief Select MCPWM timer
@@ -572,6 +560,7 @@ esp_err_t mcpwm_fault_deinit(mcpwm_unit_t mcpwm_num, mcpwm_fault_signal_t fault_
  * @param cap_edge set capture edge, BIT(0) - negative edge, BIT(1) - positive edge
  * @param cap_sig capture pin, which needs to be enabled
  * @param num_of_pulse count time between rising/falling edge between 2 *(pulses mentioned), counter uses APB_CLK
+ *                     [0~MCPWM_LL_MAX_PRESCALE] (MCPWM_LL_MAX_PRESCALE = 255 on ESP32);
  *
  * @return
  *     - ESP_OK Success
@@ -665,4 +654,4 @@ esp_err_t mcpwm_isr_register(mcpwm_unit_t mcpwm_num, void (*fn)(void *), void *a
 }
 #endif
 
-#endif  /*_DRIVER_MCPWM_H_*/
+#endif  //SOC_MCPWM_SUPPORTED

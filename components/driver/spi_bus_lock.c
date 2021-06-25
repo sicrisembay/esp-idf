@@ -1,16 +1,8 @@
-// Copyright 2015-2020 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -18,10 +10,11 @@
 #include "sdkconfig.h"
 #include "spi_common_internal.h"
 #include "esp_intr_alloc.h"
-#include "soc/spi_caps.h"
+#include "soc/soc_caps.h"
 #include "stdatomic.h"
 #include "esp_log.h"
 #include <strings.h>
+#include "esp_heap_caps.h"
 
 
 /*
@@ -232,8 +225,8 @@ DRAM_ATTR static const char TAG[] = "bus_lock";
         return (ret_val); \
     }
 
-static inline uint32_t mask_get_id(uint32_t mask);
-static inline uint32_t dev_lock_get_id(spi_bus_lock_dev_t *dev_lock);
+static inline int mask_get_id(uint32_t mask);
+static inline int dev_lock_get_id(spi_bus_lock_dev_t *dev_lock);
 
 /*******************************************************************************
  * atomic operations to the status
@@ -630,12 +623,12 @@ void spi_bus_lock_unregister_dev(spi_bus_lock_dev_handle_t dev_handle)
     free(dev_handle);
 }
 
-IRAM_ATTR static inline uint32_t mask_get_id(uint32_t mask)
+IRAM_ATTR static inline int mask_get_id(uint32_t mask)
 {
     return ID_DEV_MASK(mask);
 }
 
-IRAM_ATTR static inline uint32_t dev_lock_get_id(spi_bus_lock_dev_t *dev_lock)
+IRAM_ATTR static inline int dev_lock_get_id(spi_bus_lock_dev_t *dev_lock)
 {
     return mask_get_id(dev_lock->mask);
 }

@@ -1,9 +1,13 @@
 /*
+ * SPDX-FileCopyrightText: 2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+/*
  Tests for the adc device driver
 */
 #include "esp_system.h"
 #include "driver/adc.h"
-#include "driver/dac.h"
 #include "driver/rtc_io.h"
 #include "driver/gpio.h"
 #include "unity.h"
@@ -14,6 +18,9 @@
 #include "nvs_flash.h"
 #include "test_utils.h"
 #include "soc/adc_periph.h"
+
+#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S3,ESP32C3)
+#include "driver/dac.h"
 
 static const char *TAG = "test_adc";
 
@@ -383,3 +390,5 @@ void test_adc_slope_debug(void)
     }
 #endif
 }
+
+#endif

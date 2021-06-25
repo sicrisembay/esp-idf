@@ -33,7 +33,7 @@
  *    GPIO4/5 are from low speed channel group.
  *
  */
-#ifdef CONFIG_IDF_TARGET_ESP32
+#if CONFIG_IDF_TARGET_ESP32
 #define LEDC_HS_TIMER          LEDC_TIMER_0
 #define LEDC_HS_MODE           LEDC_HIGH_SPEED_MODE
 #define LEDC_HS_CH0_GPIO       (18)
@@ -43,7 +43,7 @@
 #endif
 #define LEDC_LS_TIMER          LEDC_TIMER_1
 #define LEDC_LS_MODE           LEDC_LOW_SPEED_MODE
-#ifdef CONFIG_IDF_TARGET_ESP32S2
+#if CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3
 #define LEDC_LS_CH0_GPIO       (18)
 #define LEDC_LS_CH0_CHANNEL    LEDC_CHANNEL_0
 #define LEDC_LS_CH1_GPIO       (19)
@@ -95,14 +95,15 @@ void app_main(void)
      *         will be the same
      */
     ledc_channel_config_t ledc_channel[LEDC_TEST_CH_NUM] = {
-#ifdef CONFIG_IDF_TARGET_ESP32
+#if CONFIG_IDF_TARGET_ESP32
         {
             .channel    = LEDC_HS_CH0_CHANNEL,
             .duty       = 0,
             .gpio_num   = LEDC_HS_CH0_GPIO,
             .speed_mode = LEDC_HS_MODE,
             .hpoint     = 0,
-            .timer_sel  = LEDC_HS_TIMER
+            .timer_sel  = LEDC_HS_TIMER,
+            .flags.output_invert = 0
         },
         {
             .channel    = LEDC_HS_CH1_CHANNEL,
@@ -110,16 +111,18 @@ void app_main(void)
             .gpio_num   = LEDC_HS_CH1_GPIO,
             .speed_mode = LEDC_HS_MODE,
             .hpoint     = 0,
-            .timer_sel  = LEDC_HS_TIMER
+            .timer_sel  = LEDC_HS_TIMER,
+            .flags.output_invert = 0
         },
-#elif defined CONFIG_IDF_TARGET_ESP32S2
+#elif CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3
         {
             .channel    = LEDC_LS_CH0_CHANNEL,
             .duty       = 0,
             .gpio_num   = LEDC_LS_CH0_GPIO,
             .speed_mode = LEDC_LS_MODE,
             .hpoint     = 0,
-            .timer_sel  = LEDC_LS_TIMER
+            .timer_sel  = LEDC_LS_TIMER,
+            .flags.output_invert = 0
         },
         {
             .channel    = LEDC_LS_CH1_CHANNEL,
@@ -127,7 +130,8 @@ void app_main(void)
             .gpio_num   = LEDC_LS_CH1_GPIO,
             .speed_mode = LEDC_LS_MODE,
             .hpoint     = 0,
-            .timer_sel  = LEDC_LS_TIMER
+            .timer_sel  = LEDC_LS_TIMER,
+            .flags.output_invert = 0
         },
 #endif
         {
@@ -136,7 +140,8 @@ void app_main(void)
             .gpio_num   = LEDC_LS_CH2_GPIO,
             .speed_mode = LEDC_LS_MODE,
             .hpoint     = 0,
-            .timer_sel  = LEDC_LS_TIMER
+            .timer_sel  = LEDC_LS_TIMER,
+            .flags.output_invert = 1
         },
         {
             .channel    = LEDC_LS_CH3_CHANNEL,
@@ -144,7 +149,8 @@ void app_main(void)
             .gpio_num   = LEDC_LS_CH3_GPIO,
             .speed_mode = LEDC_LS_MODE,
             .hpoint     = 0,
-            .timer_sel  = LEDC_LS_TIMER
+            .timer_sel  = LEDC_LS_TIMER,
+            .flags.output_invert = 1
         },
     };
 

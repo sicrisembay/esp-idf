@@ -1,16 +1,8 @@
-// Copyright 2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2019-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include <stdint.h>
 #include "sdkconfig.h"
 #include "bootloader_common.h"
@@ -18,16 +10,16 @@
 #include "soc/gpio_periph.h"
 #include "soc/gpio_sig_map.h"
 #include "soc/io_mux_reg.h"
-#include "esp_rom_gpio.h"
-#include "esp_rom_efuse.h"
-#include "esp32s2/rom/spi_flash.h"
 
 #include "bootloader_init.h"
 #include "bootloader_clock.h"
 #include "bootloader_flash_config.h"
 #include "bootloader_mem.h"
 #include "bootloader_console.h"
+#include "bootloader_flash_priv.h"
 
+#include "esp_rom_gpio.h"
+#include "esp_rom_efuse.h"
 #include "esp_rom_sys.h"
 #include "esp32s2/rom/cache.h"
 #include "esp32s2/rom/spi_flash.h"
@@ -46,7 +38,7 @@
 #include <string.h>
 
 static const char *TAG = "boot.esp32s2";
-void bootloader_configure_spi_pins(int drv)
+void IRAM_ATTR bootloader_configure_spi_pins(int drv)
 {
     const uint32_t spiconfig = esp_rom_efuse_get_flash_gpio_info();
     uint8_t wp_pin = esp_rom_efuse_get_flash_wp_gpio();
@@ -214,6 +206,8 @@ static esp_err_t bootloader_init_spi_flash(void)
 
     print_flash_info(&bootloader_image_hdr);
     update_flash_config(&bootloader_image_hdr);
+    //ensure the flash is write-protected
+    bootloader_enable_wp();
     return ESP_OK;
 }
 
@@ -274,18 +268,6 @@ static void bootloader_check_wdt_reset(void)
         wdt_reset_info_dump(0);
     }
     wdt_reset_cpu0_info_enable();
-}
-
-void abort(void)
-{
-#if !CONFIG_ESP_SYSTEM_PANIC_SILENT_REBOOT
-    esp_rom_printf("abort() was called at PC 0x%08x\r\n", (intptr_t)__builtin_return_address(0) - 3);
-#endif
-    if (esp_cpu_in_ocd_debug_mode()) {
-        __asm__("break 0,0");
-    }
-    while (1) {
-    }
 }
 
 static void bootloader_super_wdt_auto_feed(void)

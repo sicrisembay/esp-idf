@@ -1,35 +1,22 @@
-// Copyright 2015-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <string.h>
 #include "esp_log.h"
 #include "esp_err.h"
+#include "esp_check.h"
 #include "esp_intr_alloc.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/xtensa_api.h"
 #include "driver/timer.h"
 #include "driver/periph_ctrl.h"
 #include "hal/timer_hal.h"
+#include "soc/timer_periph.h"
 #include "soc/rtc.h"
 
 static const char *TIMER_TAG = "timer_group";
-
-#define TIMER_CHECK(a, str, ret_val) \
-    if (!(a)) { \
-        ESP_LOGE(TIMER_TAG,"%s(%d): %s", __FUNCTION__, __LINE__, str); \
-        return (ret_val); \
-    }
 
 #define TIMER_GROUP_NUM_ERROR   "TIMER GROUP NUM ERROR"
 #define TIMER_NUM_ERROR         "HW TIMER NUM ERROR"
@@ -61,10 +48,10 @@ static portMUX_TYPE timer_spinlock[TIMER_GROUP_MAX] = {portMUX_INITIALIZER_UNLOC
 
 esp_err_t timer_get_counter_value(timer_group_t group_num, timer_idx_t timer_num, uint64_t *timer_val)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_val != NULL, TIMER_PARAM_ADDR_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_val != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_PARAM_ADDR_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     timer_hal_get_counter_value(&(p_timer_obj[group_num][timer_num]->hal), timer_val);
     TIMER_EXIT_CRITICAL(&timer_spinlock[group_num]);
@@ -73,17 +60,17 @@ esp_err_t timer_get_counter_value(timer_group_t group_num, timer_idx_t timer_num
 
 esp_err_t timer_get_counter_time_sec(timer_group_t group_num, timer_idx_t timer_num, double *time)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(time != NULL, TIMER_PARAM_ADDR_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(time != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_PARAM_ADDR_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     uint64_t timer_val;
     esp_err_t err = timer_get_counter_value(group_num, timer_num, &timer_val);
     if (err == ESP_OK) {
         uint32_t div;
         timer_hal_get_divider(&(p_timer_obj[group_num][timer_num]->hal), &div);
         *time = (double)timer_val * div / rtc_clk_apb_freq_get();
-#ifdef TIMER_GROUP_SUPPORTS_XTAL_CLOCK
+#if SOC_TIMER_GROUP_SUPPORT_XTAL
         if (timer_hal_get_use_xtal(&(p_timer_obj[group_num][timer_num]->hal))) {
             *time = (double)timer_val * div / ((int)rtc_clk_xtal_freq_get() * 1000000);
         }
@@ -94,9 +81,9 @@ esp_err_t timer_get_counter_time_sec(timer_group_t group_num, timer_idx_t timer_
 
 esp_err_t timer_set_counter_value(timer_group_t group_num, timer_idx_t timer_num, uint64_t load_val)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     timer_hal_set_counter_value(&(p_timer_obj[group_num][timer_num]->hal), load_val);
     TIMER_EXIT_CRITICAL(&timer_spinlock[group_num]);
@@ -105,9 +92,9 @@ esp_err_t timer_set_counter_value(timer_group_t group_num, timer_idx_t timer_num
 
 esp_err_t timer_start(timer_group_t group_num, timer_idx_t timer_num)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     timer_hal_set_counter_enable(&(p_timer_obj[group_num][timer_num]->hal), TIMER_START);
     TIMER_EXIT_CRITICAL(&timer_spinlock[group_num]);
@@ -116,9 +103,9 @@ esp_err_t timer_start(timer_group_t group_num, timer_idx_t timer_num)
 
 esp_err_t timer_pause(timer_group_t group_num, timer_idx_t timer_num)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     timer_hal_set_counter_enable(&(p_timer_obj[group_num][timer_num]->hal), TIMER_PAUSE);
     TIMER_EXIT_CRITICAL(&timer_spinlock[group_num]);
@@ -127,10 +114,10 @@ esp_err_t timer_pause(timer_group_t group_num, timer_idx_t timer_num)
 
 esp_err_t timer_set_counter_mode(timer_group_t group_num, timer_idx_t timer_num, timer_count_dir_t counter_dir)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(counter_dir < TIMER_COUNT_MAX, TIMER_COUNT_DIR_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(counter_dir < TIMER_COUNT_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_COUNT_DIR_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     timer_hal_set_counter_increase(&(p_timer_obj[group_num][timer_num]->hal), counter_dir);
     TIMER_EXIT_CRITICAL(&timer_spinlock[group_num]);
@@ -139,10 +126,10 @@ esp_err_t timer_set_counter_mode(timer_group_t group_num, timer_idx_t timer_num,
 
 esp_err_t timer_set_auto_reload(timer_group_t group_num, timer_idx_t timer_num, timer_autoreload_t reload)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(reload < TIMER_AUTORELOAD_MAX, TIMER_AUTORELOAD_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(reload < TIMER_AUTORELOAD_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_AUTORELOAD_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     timer_hal_set_auto_reload(&(p_timer_obj[group_num][timer_num]->hal), reload);
     TIMER_EXIT_CRITICAL(&timer_spinlock[group_num]);
@@ -151,21 +138,21 @@ esp_err_t timer_set_auto_reload(timer_group_t group_num, timer_idx_t timer_num, 
 
 esp_err_t timer_set_divider(timer_group_t group_num, timer_idx_t timer_num, uint32_t divider)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(divider > 1 && divider < 65537, DIVIDER_RANGE_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(divider > 1 && divider < 65537, ESP_ERR_INVALID_ARG, TIMER_TAG,  DIVIDER_RANGE_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
-    timer_hal_set_divider(&(p_timer_obj[group_num][timer_num]->hal), (uint16_t) divider);
+    timer_hal_set_divider(&(p_timer_obj[group_num][timer_num]->hal), divider);
     TIMER_EXIT_CRITICAL(&timer_spinlock[group_num]);
     return ESP_OK;
 }
 
 esp_err_t timer_set_alarm_value(timer_group_t group_num, timer_idx_t timer_num, uint64_t alarm_value)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     timer_hal_set_alarm_value(&(p_timer_obj[group_num][timer_num]->hal), alarm_value);
     TIMER_EXIT_CRITICAL(&timer_spinlock[group_num]);
@@ -174,10 +161,10 @@ esp_err_t timer_set_alarm_value(timer_group_t group_num, timer_idx_t timer_num, 
 
 esp_err_t timer_get_alarm_value(timer_group_t group_num, timer_idx_t timer_num, uint64_t *alarm_value)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(alarm_value != NULL, TIMER_PARAM_ADDR_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(alarm_value != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_PARAM_ADDR_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     timer_hal_get_alarm_value(&(p_timer_obj[group_num][timer_num]->hal), alarm_value);
     TIMER_EXIT_CRITICAL(&timer_spinlock[group_num]);
@@ -186,10 +173,10 @@ esp_err_t timer_get_alarm_value(timer_group_t group_num, timer_idx_t timer_num, 
 
 esp_err_t timer_set_alarm(timer_group_t group_num, timer_idx_t timer_num, timer_alarm_t alarm_en)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(alarm_en < TIMER_ALARM_MAX, TIMER_ALARM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(alarm_en < TIMER_ALARM_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_ALARM_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     timer_hal_set_alarm_enable(&(p_timer_obj[group_num][timer_num]->hal), alarm_en);
     TIMER_EXIT_CRITICAL(&timer_spinlock[group_num]);
@@ -229,9 +216,9 @@ static void IRAM_ATTR timer_isr_default(void *arg)
 
 esp_err_t timer_isr_callback_add(timer_group_t group_num, timer_idx_t timer_num, timer_isr_t isr_handler, void *args, int intr_alloc_flags)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
 
     timer_disable_intr(group_num, timer_num);
     p_timer_obj[group_num][timer_num]->timer_isr_fun.fn = isr_handler;
@@ -246,9 +233,9 @@ esp_err_t timer_isr_callback_add(timer_group_t group_num, timer_idx_t timer_num,
 
 esp_err_t timer_isr_callback_remove(timer_group_t group_num, timer_idx_t timer_num)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
 
     timer_disable_intr(group_num, timer_num);
     p_timer_obj[group_num][timer_num]->timer_isr_fun.fn = NULL;
@@ -261,48 +248,25 @@ esp_err_t timer_isr_callback_remove(timer_group_t group_num, timer_idx_t timer_n
 esp_err_t timer_isr_register(timer_group_t group_num, timer_idx_t timer_num,
                              void (*fn)(void *), void *arg, int intr_alloc_flags, timer_isr_handle_t *handle)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(fn != NULL, TIMER_PARAM_ADDR_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(fn != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_PARAM_ADDR_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
 
-    int intr_source = 0;
     uint32_t status_reg = 0;
     uint32_t mask = 0;
-    switch (group_num) {
-    case TIMER_GROUP_0:
-    default:
-        if ((intr_alloc_flags & ESP_INTR_FLAG_EDGE) == 0) {
-            intr_source = ETS_TG0_T0_LEVEL_INTR_SOURCE + timer_num;
-        } else {
-            intr_source = ETS_TG0_T0_EDGE_INTR_SOURCE + timer_num;
-        }
-        timer_hal_get_status_reg_mask_bit(&(p_timer_obj[TIMER_GROUP_0][timer_num]->hal), &status_reg, &mask);
-        break;
-    case TIMER_GROUP_1:
-        if ((intr_alloc_flags & ESP_INTR_FLAG_EDGE) == 0) {
-            intr_source = ETS_TG1_T0_LEVEL_INTR_SOURCE + timer_num;
-        } else {
-            intr_source = ETS_TG1_T0_EDGE_INTR_SOURCE + timer_num;
-        }
-        timer_hal_get_status_reg_mask_bit(&(p_timer_obj[TIMER_GROUP_1][timer_num]->hal), &status_reg, &mask);
-        break;
-    }
-    return esp_intr_alloc_intrstatus(intr_source, intr_alloc_flags, status_reg, mask, fn, arg, handle);
+    timer_hal_get_status_reg_mask_bit(&(p_timer_obj[group_num][timer_num]->hal), &status_reg, &mask);
+    return esp_intr_alloc_intrstatus(timer_group_periph_signals.groups[group_num].t0_irq_id + timer_num, intr_alloc_flags, status_reg, mask, fn, arg, handle);
 }
 
 esp_err_t timer_init(timer_group_t group_num, timer_idx_t timer_num, const timer_config_t *config)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(config != NULL, TIMER_PARAM_ADDR_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(config->divider > 1 && config->divider < 65537, DIVIDER_RANGE_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(config != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_PARAM_ADDR_ERROR);
+    ESP_RETURN_ON_FALSE(config->divider > 1 && config->divider < 65537, ESP_ERR_INVALID_ARG, TIMER_TAG,  DIVIDER_RANGE_ERROR);
 
-    if (group_num == TIMER_GROUP_0) {
-        periph_module_enable(PERIPH_TIMG0_MODULE);
-    } else if (group_num == TIMER_GROUP_1) {
-        periph_module_enable(PERIPH_TIMG1_MODULE);
-    }
+    periph_module_enable(timer_group_periph_signals.groups[group_num].module);
 
     if (p_timer_obj[group_num][timer_num] == NULL) {
         p_timer_obj[group_num][timer_num] = (timer_obj_t *) heap_caps_calloc(1, sizeof(timer_obj_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -320,15 +284,12 @@ esp_err_t timer_init(timer_group_t group_num, timer_idx_t timer_num, const timer
     timer_hal_set_divider(&(p_timer_obj[group_num][timer_num]->hal), config->divider);
     timer_hal_set_counter_increase(&(p_timer_obj[group_num][timer_num]->hal), config->counter_dir);
     timer_hal_set_alarm_enable(&(p_timer_obj[group_num][timer_num]->hal), config->alarm_en);
-    if (config->intr_type == TIMER_INTR_LEVEL) {
-        timer_hal_set_level_int_enable(&(p_timer_obj[group_num][timer_num]->hal), true);
+    timer_hal_set_level_int_enable(&(p_timer_obj[group_num][timer_num]->hal), true);
+    if (config->intr_type != TIMER_INTR_LEVEL) {
+        ESP_LOGW(TIMER_TAG, "only support Level Interrupt, switch to Level Interrupt instead");
     }
-    // currently edge interrupt is not supported
-    // if (config->intr_type == TIMER_INTR_EDGE) {
-    //     timer_hal_set_edge_int_enable(&(p_timer_obj[group_num][timer_num]->hal), true);
-    // }
     timer_hal_set_counter_enable(&(p_timer_obj[group_num][timer_num]->hal), config->counter_en);
-#ifdef TIMER_GROUP_SUPPORTS_XTAL_CLOCK
+#if SOC_TIMER_GROUP_SUPPORT_XTAL
     timer_hal_set_use_xtal(&(p_timer_obj[group_num][timer_num]->hal), config->clk_src);
 #endif
     TIMER_EXIT_CRITICAL(&timer_spinlock[group_num]);
@@ -338,9 +299,9 @@ esp_err_t timer_init(timer_group_t group_num, timer_idx_t timer_num, const timer
 
 esp_err_t timer_deinit(timer_group_t group_num, timer_idx_t timer_num)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
 
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     timer_hal_set_counter_enable(&(p_timer_obj[group_num][timer_num]->hal), TIMER_PAUSE);
@@ -356,10 +317,10 @@ esp_err_t timer_deinit(timer_group_t group_num, timer_idx_t timer_num)
 
 esp_err_t timer_get_config(timer_group_t group_num, timer_idx_t timer_num, timer_config_t *config)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(config != NULL, TIMER_PARAM_ADDR_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(config != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_PARAM_ADDR_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
 
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     config->alarm_en = timer_hal_get_alarm_enable(&(p_timer_obj[group_num][timer_num]->hal));
@@ -382,8 +343,8 @@ esp_err_t timer_get_config(timer_group_t group_num, timer_idx_t timer_num, timer
 
 esp_err_t timer_group_intr_enable(timer_group_t group_num, timer_intr_t en_mask)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     for (int i = 0; i < TIMER_MAX; i++) {
         if (en_mask & BIT(i)) {
@@ -396,8 +357,8 @@ esp_err_t timer_group_intr_enable(timer_group_t group_num, timer_intr_t en_mask)
 
 esp_err_t timer_group_intr_disable(timer_group_t group_num, timer_intr_t disable_mask)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     for (int i = 0; i < TIMER_MAX; i++) {
         if (disable_mask & BIT(i)) {
@@ -410,9 +371,9 @@ esp_err_t timer_group_intr_disable(timer_group_t group_num, timer_intr_t disable
 
 esp_err_t timer_enable_intr(timer_group_t group_num, timer_idx_t timer_num)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     timer_hal_intr_enable(&(p_timer_obj[group_num][timer_num]->hal));
     TIMER_EXIT_CRITICAL(&timer_spinlock[group_num]);
@@ -421,9 +382,9 @@ esp_err_t timer_enable_intr(timer_group_t group_num, timer_idx_t timer_num)
 
 esp_err_t timer_disable_intr(timer_group_t group_num, timer_idx_t timer_num)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(timer_num < TIMER_MAX, TIMER_NUM_ERROR, ESP_ERR_INVALID_ARG);
-    TIMER_CHECK(p_timer_obj[group_num][timer_num] != NULL, TIMER_NEVER_INIT_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(timer_num < TIMER_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NUM_ERROR);
+    ESP_RETURN_ON_FALSE(p_timer_obj[group_num][timer_num] != NULL, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_NEVER_INIT_ERROR);
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     timer_hal_intr_disable(&(p_timer_obj[group_num][timer_num]->hal));
     TIMER_EXIT_CRITICAL(&timer_spinlock[group_num]);
@@ -443,9 +404,12 @@ uint32_t IRAM_ATTR timer_group_get_intr_status_in_isr(timer_group_t group_num)
     uint32_t intr_status = 0;
     if (p_timer_obj[group_num][TIMER_0] != NULL) {
         timer_hal_get_intr_status(&(p_timer_obj[group_num][TIMER_0]->hal), &intr_status);
-    } else if (p_timer_obj[group_num][TIMER_1] != NULL) {
+    }
+#if SOC_TIMER_GROUP_TIMERS_PER_GROUP > 1
+    else if (p_timer_obj[group_num][TIMER_1] != NULL) {
         timer_hal_get_intr_status(&(p_timer_obj[group_num][TIMER_1]->hal), &intr_status);
     }
+#endif
     return intr_status;
 }
 
@@ -497,16 +461,16 @@ bool IRAM_ATTR timer_group_get_auto_reload_in_isr(timer_group_t group_num, timer
     return timer_hal_get_auto_reload(&(p_timer_obj[group_num][timer_num]->hal));
 }
 
-esp_err_t timer_spinlock_take(timer_group_t group_num)
+esp_err_t IRAM_ATTR timer_spinlock_take(timer_group_t group_num)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
     TIMER_ENTER_CRITICAL(&timer_spinlock[group_num]);
     return ESP_OK;
 }
 
-esp_err_t timer_spinlock_give(timer_group_t group_num)
+esp_err_t IRAM_ATTR timer_spinlock_give(timer_group_t group_num)
 {
-    TIMER_CHECK(group_num < TIMER_GROUP_MAX, TIMER_GROUP_NUM_ERROR, ESP_ERR_INVALID_ARG);
+    ESP_RETURN_ON_FALSE(group_num < TIMER_GROUP_MAX, ESP_ERR_INVALID_ARG, TIMER_TAG,  TIMER_GROUP_NUM_ERROR);
     TIMER_EXIT_CRITICAL(&timer_spinlock[group_num]);
     return ESP_OK;
 }

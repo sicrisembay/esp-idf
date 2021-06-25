@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include <typeinfo>
 #include "unity.h"
 
@@ -93,4 +98,3 @@ TEST_CASE("typeid on nullptr throws bad_typeid", "[cxx]")
 
 #endif // CONFIG_COMPILER_CXX_EXCEPTIONS
 #endif // CONFIG_COMPILER_CXX_RTTI
-

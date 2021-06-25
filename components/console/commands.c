@@ -1,16 +1,8 @@
-// Copyright 2016-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2016-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <stdio.h>
 #include <string.h>
@@ -162,7 +154,7 @@ void esp_console_get_completion(const char *buf, linenoiseCompletions *lc)
 
 const char *esp_console_get_hint(const char *buf, int *color, int *bold)
 {
-    int len = strlen(buf);
+    size_t len = strlen(buf);
     cmd_item_t *it;
     SLIST_FOREACH(it, &s_cmd_list, next) {
         if (strlen(it->command) == len &&
@@ -179,7 +171,7 @@ static const cmd_item_t *find_command_by_name(const char *name)
 {
     const cmd_item_t *cmd = NULL;
     cmd_item_t *it;
-    int len = strlen(name);
+    size_t len = strlen(name);
     SLIST_FOREACH(it, &s_cmd_list, next) {
         if (strlen(it->command) == len &&
                 strcmp(name, it->command) == 0) {

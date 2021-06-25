@@ -39,31 +39,44 @@
 #include "esp_timer.h"
 #include "esp_efuse.h"
 #include "esp_flash_encrypt.h"
+#include "esp_secure_boot.h"
+#include "esp_sleep.h"
 
 /***********************************************/
 // Headers for other components init functions
 #include "nvs_flash.h"
 #include "esp_phy_init.h"
 #include "esp_coexist_internal.h"
+
+#if CONFIG_ESP_COREDUMP_ENABLE
 #include "esp_core_dump.h"
+#endif
+
 #include "esp_app_trace.h"
 #include "esp_private/dbg_stubs.h"
-#include "esp_flash_encrypt.h"
 #include "esp_pm.h"
 #include "esp_private/pm_impl.h"
 #include "esp_pthread.h"
 #include "esp_private/usb_console.h"
 #include "esp_vfs_cdcacm.h"
+#include "esp_vfs_usb_serial_jtag.h"
+
+#include "brownout.h"
 
 #include "esp_rom_sys.h"
 
 // [refactor-todo] make this file completely target-independent
 #if CONFIG_IDF_TARGET_ESP32
+#include "esp32/clk.h"
 #include "esp32/spiram.h"
-#include "esp32/brownout.h"
 #elif CONFIG_IDF_TARGET_ESP32S2
+#include "esp32s2/clk.h"
 #include "esp32s2/spiram.h"
-#include "esp32s2/brownout.h"
+#elif CONFIG_IDF_TARGET_ESP32S3
+#include "esp32s3/clk.h"
+#include "esp32s3/spiram.h"
+#elif CONFIG_IDF_TARGET_ESP32C3
+#include "esp32c3/clk.h"
 #endif
 /***********************************************/
 
@@ -80,8 +93,13 @@
 
 uint64_t g_startup_time = 0;
 
+#if SOC_APB_BACKUP_DMA
+// APB DMA lock initialising API
+extern void esp_apb_backup_dma_lock_init(void);
+#endif
+
 // App entry point for core 0
-extern void start_app(void);
+extern void esp_startup_start_app(void);
 
 // Entry point for core 0 from hardware init (port layer)
 void start_cpu0(void) __attribute__((weak, alias("start_cpu0_default"))) __attribute__((noreturn));
@@ -91,11 +109,11 @@ void start_cpu0(void) __attribute__((weak, alias("start_cpu0_default"))) __attri
 void start_cpu_other_cores(void) __attribute__((weak, alias("start_cpu_other_cores_default"))) __attribute__((noreturn));
 
 // App entry point for core [1..X]
-void start_app_other_cores(void) __attribute__((weak, alias("start_app_other_cores_default"))) __attribute__((noreturn));
+void esp_startup_start_app_other_cores(void) __attribute__((weak, alias("esp_startup_start_app_other_cores_default"))) __attribute__((noreturn));
 
 static volatile bool s_system_inited[SOC_CPU_CORES_NUM] = { false };
 
-sys_startup_fn_t g_startup_fn[SOC_CPU_CORES_NUM] = { [0] = start_cpu0,
+const sys_startup_fn_t g_startup_fn[SOC_CPU_CORES_NUM] = { [0] = start_cpu0,
 #if SOC_CPU_CORES_NUM > 1
     [1 ... SOC_CPU_CORES_NUM - 1] = start_cpu_other_cores
 #endif
@@ -103,20 +121,39 @@ sys_startup_fn_t g_startup_fn[SOC_CPU_CORES_NUM] = { [0] = start_cpu0,
 
 static volatile bool s_system_full_inited = false;
 #else
-sys_startup_fn_t g_startup_fn[1] = { start_cpu0 };
+const sys_startup_fn_t g_startup_fn[1] = { start_cpu0 };
 #endif
 
 #ifdef CONFIG_COMPILER_CXX_EXCEPTIONS
 // workaround for C++ exception crashes
-void _Unwind_SetNoFunctionContextInstall(unsigned char enable);
+void _Unwind_SetNoFunctionContextInstall(unsigned char enable) __attribute__((weak, alias("_Unwind_SetNoFunctionContextInstall_Default")));
 // workaround for C++ exception large memory allocation
 void _Unwind_SetEnableExceptionFdeSorting(unsigned char enable);
+
+static IRAM_ATTR void _Unwind_SetNoFunctionContextInstall_Default(unsigned char enable __attribute__((unused)))
+{
+    (void)0;
+}
 #endif // CONFIG_COMPILER_CXX_EXCEPTIONS
 
 static const char* TAG = "cpu_start";
 
-static void IRAM_ATTR do_global_ctors(void)
+/**
+ * Xtensa gcc is configured to emit a .ctors section, RISC-V gcc is configured with --enable-initfini-array
+ * so it emits an .init_array section instead.
+ * But the init_priority sections will be sorted for iteration in ascending order during startup.
+ * The rest of the init_array sections is sorted for iteration in descending order during startup, however.
+ * Hence a different section is generated for the init_priority functions which is looped
+ * over in ascending direction instead of descending direction.
+ * The RISC-V-specific behavior is dependent on the linker script esp32c3.project.ld.in.
+ */
+static void do_global_ctors(void)
 {
+#if __riscv
+    extern void (*__init_priority_array_start)(void);
+    extern void (*__init_priority_array_end)(void);
+#endif
+
     extern void (*__init_array_start)(void);
     extern void (*__init_array_end)(void);
 
@@ -130,12 +167,21 @@ static void IRAM_ATTR do_global_ctors(void)
 #endif // CONFIG_COMPILER_CXX_EXCEPTIONS
 
     void (**p)(void);
+
+#if __riscv
+    for (p = &__init_priority_array_start; p < &__init_priority_array_end; ++p) {
+        ESP_EARLY_LOGD(TAG, "calling init function: %p", *p);
+        (*p)();
+    }
+#endif
+
     for (p = &__init_array_end - 1; p >= &__init_array_start; --p) {
+        ESP_EARLY_LOGD(TAG, "calling init function: %p", *p);
         (*p)();
     }
 }
 
-static void IRAM_ATTR do_system_init_fn(void)
+static void do_system_init_fn(void)
 {
     extern esp_system_init_fn_t _esp_system_init_fn_array_start;
     extern esp_system_init_fn_t _esp_system_init_fn_array_end;
@@ -154,7 +200,7 @@ static void IRAM_ATTR do_system_init_fn(void)
 }
 
 #if !CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE
-static void IRAM_ATTR start_app_other_cores_default(void)
+static void  esp_startup_start_app_other_cores_default(void)
 {
     while (1) {
         esp_rom_delay_us(UINT32_MAX);
@@ -169,11 +215,11 @@ static void IRAM_ATTR start_cpu_other_cores_default(void)
         esp_rom_delay_us(100);
     }
 
-    start_app_other_cores();
+    esp_startup_start_app_other_cores();
 }
 #endif
 
-static void IRAM_ATTR do_core_init(void)
+static void do_core_init(void)
 {
     /* Initialize heap allocator. WARNING: This *needs* to happen *after* the app cpu has booted.
        If the heap allocator is initialized first, it will put free memory linked list items into
@@ -184,7 +230,7 @@ static void IRAM_ATTR do_core_init(void)
        app CPU, and when that is not up yet, the memory will be inaccessible and heap_caps_init may
        fail initializing it properly. */
     heap_caps_init();
-    esp_setup_syscall_table();
+    esp_newlib_init();
     esp_newlib_time_init();
 
     if (g_spiram_ok) {
@@ -200,7 +246,10 @@ static void IRAM_ATTR do_core_init(void)
 #endif
     }
 
-#if CONFIG_ESP32_BROWNOUT_DET || CONFIG_ESP32S2_BROWNOUT_DET
+#if CONFIG_ESP32_BROWNOUT_DET   || \
+    CONFIG_ESP32S2_BROWNOUT_DET || \
+    CONFIG_ESP32S3_BROWNOUT_DET || \
+    CONFIG_ESP32C3_BROWNOUT_DET
     // [refactor-todo] leads to call chain rtc_is_register (driver) -> esp_intr_alloc (esp32/esp32s2) ->
     // malloc (newlib) -> heap_caps_malloc (heap), so heap must be at least initialized
     esp_brownout_init();
@@ -216,6 +265,10 @@ static void IRAM_ATTR do_core_init(void)
     ESP_ERROR_CHECK(esp_vfs_dev_cdcacm_register());
     const char *default_stdio_dev = "/dev/cdcacm";
 #endif // CONFIG_ESP_CONSOLE_USB_CDC
+#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+    ESP_ERROR_CHECK(esp_vfs_dev_usb_serial_jtag_register());
+    const char *default_stdio_dev = "/dev/usbserjtag";
+#endif // CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
 #endif // CONFIG_VFS_SUPPORT_IO
 
 #if defined(CONFIG_VFS_SUPPORT_IO) && !defined(CONFIG_ESP_CONSOLE_NONE)
@@ -227,11 +280,7 @@ static void IRAM_ATTR do_core_init(void)
     _REENT_SMALL_CHECK_INIT(_GLOBAL_REENT);
 #endif // defined(CONFIG_VFS_SUPPORT_IO) && !defined(CONFIG_ESP_CONSOLE_NONE)
 
-#ifdef CONFIG_SECURE_FLASH_ENC_ENABLED
-    esp_flash_encryption_init_checks();
-#endif
-
-    esp_err_t err;
+    esp_err_t err __attribute__((unused));
 
 #if CONFIG_SECURE_DISABLE_ROM_DL_MODE
     err = esp_efuse_disable_rom_download_mode();
@@ -270,9 +319,19 @@ static void IRAM_ATTR do_core_init(void)
     esp_flash_app_init();
     esp_err_t flash_ret = esp_flash_init_default_chip();
     assert(flash_ret == ESP_OK);
+    (void)flash_ret;
+
+#ifdef CONFIG_SECURE_FLASH_ENC_ENABLED
+    esp_flash_encryption_init_checks();
+#endif
+
+#if defined(CONFIG_SECURE_BOOT) || defined(CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT)
+    // Note: in some configs this may read flash, so placed after flash init
+    esp_secure_boot_init_checks();
+#endif
 }
 
-static void IRAM_ATTR do_secondary_init(void)
+static void do_secondary_init(void)
 {
 #if !CONFIG_ESP_SYSTEM_SINGLE_CORE_MODE
     // The port layer transferred control to this function with other cores 'paused',
@@ -299,10 +358,12 @@ static void IRAM_ATTR do_secondary_init(void)
 #endif
 }
 
-void IRAM_ATTR start_cpu0_default(void)
+static void start_cpu0_default(void)
 {
 
     ESP_EARLY_LOGI(TAG, "Pro cpu start user code");
+    int cpu_freq = esp_clk_cpu_freq();
+    ESP_EARLY_LOGI(TAG, "cpu freq: %d", cpu_freq);
 
     // Display information about the current running image.
     if (LOG_LOCAL_LEVEL >= ESP_LOG_INFO) {
@@ -348,7 +409,7 @@ void IRAM_ATTR start_cpu0_default(void)
     s_system_full_inited = true;
 #endif
 
-    start_app();
+    esp_startup_start_app();
     while (1);
 }
 
@@ -356,34 +417,29 @@ IRAM_ATTR ESP_SYSTEM_INIT_FN(init_components0, BIT(0))
 {
     esp_timer_init();
 
-#if defined(CONFIG_PM_ENABLE) && defined(CONFIG_ESP_CONSOLE_UART)
-    /* When DFS is enabled, use REFTICK as UART clock source */
-    uart_ll_set_baudrate(UART_LL_GET_HW(CONFIG_ESP_CONSOLE_UART_NUM), UART_SCLK_REF_TICK, CONFIG_ESP_CONSOLE_UART_BAUDRATE);
-#endif // CONFIG_ESP_CONSOLE_UART_NONE
+#if CONFIG_ESP32C3_LIGHTSLEEP_GPIO_RESET_WORKAROUND && !CONFIG_PM_SLP_DISABLE_GPIO
+    // Configure to isolate (disable the Input/Output/Pullup/Pulldown
+    // function of the pin) all GPIO pins in sleep state
+    esp_sleep_config_gpio_isolate();
+    // Enable automatic switching of GPIO configuration
+    esp_sleep_enable_gpio_switch(true);
+#endif
 
-#ifdef CONFIG_PM_ENABLE
+#if defined(CONFIG_PM_ENABLE)
     esp_pm_impl_init();
-#ifdef CONFIG_PM_DFS_INIT_AUTO
-    int xtal_freq = (int) rtc_clk_xtal_freq_get();
-    esp_pm_config_esp32_t cfg = {
-        .max_freq_mhz = CONFIG_ESP32_DEFAULT_CPU_FREQ_MHZ,
-        .min_freq_mhz = xtal_freq,
-    };
-    esp_pm_configure(&cfg);
-#endif //CONFIG_PM_DFS_INIT_AUTO
-#endif //CONFIG_PM_ENABLE
+#endif
 
-#if CONFIG_IDF_TARGET_ESP32
-#if CONFIG_ESP32_ENABLE_COREDUMP
+#if CONFIG_ESP_COREDUMP_ENABLE
     esp_core_dump_init();
 #endif
+
+#if SOC_APB_BACKUP_DMA
+    esp_apb_backup_dma_lock_init();
 #endif
 
-#if CONFIG_IDF_TARGET_ESP32
-#if CONFIG_ESP32_WIFI_SW_COEXIST_ENABLE
+#if CONFIG_SW_COEXIST_ENABLE
     esp_coex_adapter_register(&g_coex_adapter_funcs);
     coex_pre_init();
-#endif
 #endif
 
 #ifdef CONFIG_BOOTLOADER_EFUSE_SECURE_VERSION_EMULATE
@@ -399,4 +455,3 @@ IRAM_ATTR ESP_SYSTEM_INIT_FN(init_components0, BIT(0))
     _Unwind_SetEnableExceptionFdeSorting(0);
 #endif // CONFIG_COMPILER_CXX_EXCEPTIONS
 }
-

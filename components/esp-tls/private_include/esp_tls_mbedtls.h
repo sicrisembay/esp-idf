@@ -1,16 +1,8 @@
-// Copyright 2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2019-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #pragma once
 #include "esp_tls.h"
@@ -54,6 +46,14 @@ ssize_t esp_mbedtls_get_bytes_avail(esp_tls_t *tls);
  * Internal Callback for creating ssl handle for mbedtls
  */
 esp_err_t esp_create_mbedtls_handle(const char *hostname, size_t hostlen, const void *cfg, esp_tls_t *tls);
+
+/**
+ * mbedTLS function for Initializing socket wrappers
+ */
+static inline void esp_mbedtls_net_init(esp_tls_t *tls)
+{
+    mbedtls_net_init(&tls->server_fd);
+}
 
 #ifdef CONFIG_ESP_TLS_SERVER
 /**

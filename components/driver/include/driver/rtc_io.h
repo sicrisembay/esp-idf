@@ -1,25 +1,20 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef _DRIVER_RTC_GPIO_H_
 #define _DRIVER_RTC_GPIO_H_
 
 #include <stdint.h>
 #include "esp_err.h"
-#include "driver/gpio.h"
+#include "soc/soc_caps.h"
 #include "soc/rtc_io_periph.h"
 #include "hal/rtc_io_types.h"
+#include "driver/gpio.h"
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -32,12 +27,16 @@ extern "C" {
  */
 static inline bool rtc_gpio_is_valid_gpio(gpio_num_t gpio_num)
 {
-    return (gpio_num < GPIO_PIN_COUNT
-        && rtc_io_num_map[gpio_num] >= 0);
+#if SOC_RTCIO_INPUT_OUTPUT_SUPPORTED
+    return (gpio_num < GPIO_PIN_COUNT && rtc_io_num_map[gpio_num] >= 0);
+#else
+    return false;
+#endif
 }
 
 #define RTC_GPIO_IS_VALID_GPIO(gpio_num) rtc_gpio_is_valid_gpio(gpio_num) // Deprecated, use rtc_gpio_is_valid_gpio()
 
+#if SOC_RTCIO_INPUT_OUTPUT_SUPPORTED
 /**
  * @brief Get RTC IO index number by gpio number.
  *
@@ -187,6 +186,34 @@ esp_err_t rtc_gpio_pullup_dis(gpio_num_t gpio_num);
 esp_err_t rtc_gpio_pulldown_dis(gpio_num_t gpio_num);
 
 /**
+ * @brief Set RTC GPIO pad drive capability
+ *
+ * @param gpio_num GPIO number, only support output GPIOs
+ * @param strength Drive capability of the pad
+ *
+ * @return
+ *     - ESP_OK Success
+ *     - ESP_ERR_INVALID_ARG Parameter error
+ */
+esp_err_t rtc_gpio_set_drive_capability(gpio_num_t gpio_num, gpio_drive_cap_t strength);
+
+/**
+ * @brief Get RTC GPIO pad drive capability
+ *
+ * @param gpio_num GPIO number, only support output GPIOs
+ * @param strength Pointer to accept drive capability of the pad
+ *
+ * @return
+ *     - ESP_OK Success
+ *     - ESP_ERR_INVALID_ARG Parameter error
+ */
+esp_err_t rtc_gpio_get_drive_capability(gpio_num_t gpio_num, gpio_drive_cap_t* strength);
+
+#endif // SOC_RTCIO_INPUT_OUTPUT_SUPPORTED
+
+#if SOC_RTCIO_HOLD_SUPPORTED
+
+/**
  * @brief Enable hold function on an RTC IO pad
  *
  * Enabling HOLD function will cause the pad to latch current values of
@@ -249,29 +276,9 @@ esp_err_t rtc_gpio_force_hold_all(void);
  */
 esp_err_t rtc_gpio_force_hold_dis_all(void);
 
-/**
- * @brief Set RTC GPIO pad drive capability
- *
- * @param gpio_num GPIO number, only support output GPIOs
- * @param strength Drive capability of the pad
- *
- * @return
- *     - ESP_OK Success
- *     - ESP_ERR_INVALID_ARG Parameter error
- */
-esp_err_t rtc_gpio_set_drive_capability(gpio_num_t gpio_num, gpio_drive_cap_t strength);
+#endif // SOC_RTCIO_HOLD_SUPPORTED
 
-/**
- * @brief Get RTC GPIO pad drive capability
- *
- * @param gpio_num GPIO number, only support output GPIOs
- * @param strength Pointer to accept drive capability of the pad
- *
- * @return
- *     - ESP_OK Success
- *     - ESP_ERR_INVALID_ARG Parameter error
- */
-esp_err_t rtc_gpio_get_drive_capability(gpio_num_t gpio_num, gpio_drive_cap_t* strength);
+#if SOC_RTCIO_WAKE_SUPPORTED
 
 /**
  * @brief Enable wakeup from sleep mode using specific GPIO
@@ -293,6 +300,8 @@ esp_err_t rtc_gpio_wakeup_enable(gpio_num_t gpio_num, gpio_int_type_t intr_type)
  *      - ESP_ERR_INVALID_ARG if gpio_num is not an RTC IO
  */
 esp_err_t rtc_gpio_wakeup_disable(gpio_num_t gpio_num);
+
+#endif // SOC_RTCIO_WAKE_SUPPORTED
 
 #ifdef __cplusplus
 }

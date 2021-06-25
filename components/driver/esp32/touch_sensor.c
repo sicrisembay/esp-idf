@@ -1,16 +1,8 @@
-// Copyright 2016-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2016-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <stdlib.h>
 #include <ctype.h>
@@ -187,9 +179,9 @@ esp_err_t touch_pad_get_trigger_source(touch_trigger_src_t *src)
 
 esp_err_t touch_pad_set_group_mask(uint16_t set1_mask, uint16_t set2_mask, uint16_t en_mask)
 {
-    TOUCH_CHECK((set1_mask <= SOC_TOUCH_SENSOR_BIT_MASK_MAX), "touch set1 bitmask error", ESP_ERR_INVALID_ARG);
-    TOUCH_CHECK((set2_mask <= SOC_TOUCH_SENSOR_BIT_MASK_MAX), "touch set2 bitmask error", ESP_ERR_INVALID_ARG);
-    TOUCH_CHECK((en_mask <= SOC_TOUCH_SENSOR_BIT_MASK_MAX), "touch work_en bitmask error", ESP_ERR_INVALID_ARG);
+    TOUCH_CHECK((set1_mask <= TOUCH_PAD_BIT_MASK_ALL), "touch set1 bitmask error", ESP_ERR_INVALID_ARG);
+    TOUCH_CHECK((set2_mask <= TOUCH_PAD_BIT_MASK_ALL), "touch set2 bitmask error", ESP_ERR_INVALID_ARG);
+    TOUCH_CHECK((en_mask <= TOUCH_PAD_BIT_MASK_ALL), "touch work_en bitmask error", ESP_ERR_INVALID_ARG);
 
     TOUCH_ENTER_CRITICAL();
     touch_hal_set_group_mask(set1_mask, set2_mask);
@@ -211,9 +203,9 @@ esp_err_t touch_pad_get_group_mask(uint16_t *set1_mask, uint16_t *set2_mask, uin
 
 esp_err_t touch_pad_clear_group_mask(uint16_t set1_mask, uint16_t set2_mask, uint16_t en_mask)
 {
-    TOUCH_CHECK((set1_mask <= SOC_TOUCH_SENSOR_BIT_MASK_MAX), "touch set1 bitmask error", ESP_ERR_INVALID_ARG);
-    TOUCH_CHECK((set2_mask <= SOC_TOUCH_SENSOR_BIT_MASK_MAX), "touch set2 bitmask error", ESP_ERR_INVALID_ARG);
-    TOUCH_CHECK((en_mask <= SOC_TOUCH_SENSOR_BIT_MASK_MAX), "touch work_en bitmask error", ESP_ERR_INVALID_ARG);
+    TOUCH_CHECK((set1_mask <= TOUCH_PAD_BIT_MASK_ALL), "touch set1 bitmask error", ESP_ERR_INVALID_ARG);
+    TOUCH_CHECK((set2_mask <= TOUCH_PAD_BIT_MASK_ALL), "touch set2 bitmask error", ESP_ERR_INVALID_ARG);
+    TOUCH_CHECK((en_mask <= TOUCH_PAD_BIT_MASK_ALL), "touch work_en bitmask error", ESP_ERR_INVALID_ARG);
 
     TOUCH_ENTER_CRITICAL();
     touch_hal_clear_channel_mask(en_mask);
@@ -287,6 +279,10 @@ esp_err_t touch_pad_config(touch_pad_t touch_num, uint16_t threshold)
 
 esp_err_t touch_pad_init(void)
 {
+#ifdef CONFIG_ESP32_RTC_EXT_CRYST_ADDIT_CURRENT_V2
+    ESP_LOGE(TOUCH_TAG, "Touch Pad can't work because it provides current to external XTAL");
+    return ESP_ERR_NOT_SUPPORTED;
+#endif // CONFIG_ESP32_RTC_EXT_CRYST_ADDIT_CURRENT_V2
     if (rtc_touch_mux == NULL) {
         rtc_touch_mux = xSemaphoreCreateMutex();
     }

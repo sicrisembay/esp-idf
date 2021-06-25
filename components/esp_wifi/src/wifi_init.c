@@ -23,7 +23,10 @@
 #include "esp_wpa.h"
 #include "esp_netif.h"
 #include "tcpip_adapter_compatible/tcpip_adapter_compat.h"
+#include "driver/adc.h"
 #include "driver/adc2_wifi_private.h"
+#include "esp_coexist_internal.h"
+#include "esp_phy_init.h"
 
 #if (CONFIG_ESP32_WIFI_RX_BA_WIN > CONFIG_ESP32_WIFI_DYNAMIC_RX_BUFFER_NUM)
 #error "WiFi configuration check: WARNING, WIFI_RX_BA_WIN should not be larger than WIFI_DYNAMIC_RX_BUFFER_NUM!"
@@ -50,10 +53,18 @@ uint64_t g_wifi_feature_caps =
 #if CONFIG_ESP32_WIFI_ENABLE_WPA3_SAE
     CONFIG_FEATURE_WPA3_SAE_BIT |
 #endif
-#if (CONFIG_ESP32_SPIRAM_SUPPORT | CONFIG_ESP32S2_SPIRAM_SUPPORT)
+#if (CONFIG_ESP32_SPIRAM_SUPPORT || CONFIG_ESP32S2_SPIRAM_SUPPORT || CONFIG_ESP32S3_SPIRAM_SUPPORT)
     CONFIG_FEATURE_CACHE_TX_BUF_BIT |
 #endif
+#if CONFIG_ESP_WIFI_FTM_INITIATOR_SUPPORT
+    CONFIG_FEATURE_FTM_INITIATOR_BIT |
+#endif
+#if CONFIG_ESP_WIFI_FTM_RESPONDER_SUPPORT
+    CONFIG_FEATURE_FTM_RESPONDER_BIT |
+#endif
 0;
+
+static bool s_wifi_adc_xpd_flag;
 
 static const char* TAG = "wifi_init";
 
@@ -65,6 +76,8 @@ static void __attribute__((constructor)) s_set_default_wifi_log_level(void)
     */
     esp_log_level_set("wifi", CONFIG_LOG_DEFAULT_LEVEL);
     esp_log_level_set("mesh", CONFIG_LOG_DEFAULT_LEVEL);
+    esp_log_level_set("smartconfig", CONFIG_LOG_DEFAULT_LEVEL);
+    esp_log_level_set("ESPNOW", CONFIG_LOG_DEFAULT_LEVEL);
 }
 
 static void esp_wifi_set_debug_log(void)
@@ -120,7 +133,7 @@ esp_err_t esp_wifi_deinit(void)
 
     if (esp_wifi_get_user_init_flag_internal()) {
         ESP_LOGE(TAG, "Wi-Fi not stop");
-        return ESP_FAIL; 
+        return ESP_ERR_WIFI_NOT_STOPPED;
     }
 
     esp_supplicant_deinit();
@@ -133,12 +146,20 @@ esp_err_t esp_wifi_deinit(void)
 #if CONFIG_ESP_NETIF_TCPIP_ADAPTER_COMPATIBLE_LAYER
     tcpip_adapter_clear_default_wifi_handlers();
 #endif
-#if CONFIG_IDF_TARGET_ESP32S2
+#if CONFIG_ESP_WIFI_SLP_IRAM_OPT
+    esp_pm_unregister_light_sleep_default_params_config_callback();
+#endif
 #if CONFIG_FREERTOS_USE_TICKLESS_IDLE
+#if SOC_WIFI_HW_TSF
     esp_pm_unregister_skip_light_sleep_callback(esp_wifi_internal_is_tsf_active);
+    esp_pm_unregister_inform_out_light_sleep_overhead_callback(esp_wifi_internal_update_light_sleep_wake_ahead_time);
+    esp_sleep_disable_wifi_wakeup();
 #endif
 #endif
-
+#if CONFIG_MAC_BB_PD
+    esp_unregister_mac_bb_pd_callback(pm_mac_sleep);
+    esp_unregister_mac_bb_pu_callback(pm_mac_wakeup);
+#endif
     return err;
 }
 
@@ -147,6 +168,8 @@ static void esp_wifi_config_info(void)
 #ifdef CONFIG_ESP32_WIFI_RX_BA_WIN
     ESP_LOGI(TAG, "rx ba win: %d", CONFIG_ESP32_WIFI_RX_BA_WIN);
 #endif
+
+#ifdef CONFIG_ESP_NETIF_TCPIP_LWIP
     ESP_LOGI(TAG, "tcpip mbox: %d", CONFIG_LWIP_TCPIP_RECVMBOX_SIZE);
     ESP_LOGI(TAG, "udp mbox: %d", CONFIG_LWIP_UDP_RECVMBOX_SIZE);
     ESP_LOGI(TAG, "tcp mbox: %d", CONFIG_LWIP_TCP_RECVMBOX_SIZE);
@@ -166,8 +189,16 @@ static void esp_wifi_config_info(void)
     ESP_LOGI(TAG, "WiFi RX IRAM OP enabled");
 #endif
 
+#ifdef CONFIG_ESP_WIFI_SLP_IRAM_OPT
+    ESP_LOGI(TAG, "WiFi SLP IRAM OP enabled");
+#endif
+
 #ifdef CONFIG_LWIP_IRAM_OPTIMIZATION
     ESP_LOGI(TAG, "LWIP IRAM OP enabled");
+#endif
+
+#else
+    ESP_LOGI(TAG, "LWIP disabled");
 #endif
 }
 
@@ -182,24 +213,66 @@ esp_err_t esp_wifi_init(const wifi_init_config_t *config)
         }
     }
 #endif
-#if CONFIG_IDF_TARGET_ESP32S2
+
+#if CONFIG_ESP_WIFI_SLP_IRAM_OPT
+    esp_pm_register_light_sleep_default_params_config_callback(esp_wifi_internal_update_light_sleep_default_params);
+
+    int min_freq_mhz = esp_pm_impl_get_cpu_freq(PM_MODE_LIGHT_SLEEP);
+    int max_freq_mhz = esp_pm_impl_get_cpu_freq(PM_MODE_CPU_MAX);
+    esp_wifi_internal_update_light_sleep_default_params(min_freq_mhz, max_freq_mhz);
+
+    uint32_t sleep_delay_us = CONFIG_ESP_WIFI_SLP_DEFAULT_MIN_ACTIVE_TIME * 1000;
+    esp_wifi_set_sleep_delay_time(sleep_delay_us);
+
+    uint32_t keep_alive_time_us = CONFIG_ESP_WIFI_SLP_DEFAULT_MAX_ACTIVE_TIME * 1000 * 1000;
+    esp_wifi_set_keep_alive_time(keep_alive_time_us);
+#endif
+
 #if CONFIG_FREERTOS_USE_TICKLESS_IDLE
+#if CONFIG_MAC_BB_PD
+    if (esp_register_mac_bb_pd_callback(pm_mac_sleep) != ESP_OK
+        || esp_register_mac_bb_pu_callback(pm_mac_wakeup) != ESP_OK) {
+
+        esp_unregister_mac_bb_pd_callback(pm_mac_sleep);
+        esp_unregister_mac_bb_pu_callback(pm_mac_wakeup);
+        return ESP_ERR_INVALID_ARG;
+    }
+#endif
+
+#if SOC_WIFI_HW_TSF
     esp_err_t ret = esp_pm_register_skip_light_sleep_callback(esp_wifi_internal_is_tsf_active);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to register skip light sleep callback (0x%x)", ret);
+#if CONFIG_MAC_BB_PD
+        esp_unregister_mac_bb_pd_callback(pm_mac_sleep);
+        esp_unregister_mac_bb_pu_callback(pm_mac_wakeup);
+#endif
+        return ret;
+    }
+    ret = esp_pm_register_inform_out_light_sleep_overhead_callback(esp_wifi_internal_update_light_sleep_wake_ahead_time);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register inform light sleep overhead callback (0x%x)", ret);
         return ret;
     }
     esp_sleep_enable_wifi_wakeup();
 #endif
 #endif
+
 #if CONFIG_ESP_NETIF_TCPIP_ADAPTER_COMPATIBLE_LAYER
     esp_err_t err = tcpip_adapter_set_default_wifi_handlers();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Failed to set default Wi-Fi event handlers (0x%x)", err);
     }
 #endif
+#if CONFIG_SW_COEXIST_ENABLE
+    coex_init();
+#endif
     esp_err_t result = esp_wifi_init_internal(config);
     if (result == ESP_OK) {
+#if CONFIG_MAC_BB_PD
+        esp_mac_bb_pd_mem_init();
+        esp_wifi_internal_set_mac_sleep(true);
+#endif
         esp_wifi_set_debug_log();
 #if CONFIG_IDF_TARGET_ESP32
         s_wifi_mac_time_update_cb = esp_wifi_internal_update_mac_time;
@@ -214,11 +287,10 @@ esp_err_t esp_wifi_init(const wifi_init_config_t *config)
             }
 
             return result;
-        } 
+        }
     }
-#if CONFIG_IDF_TARGET_ESP32S2
     adc2_cal_include(); //This enables the ADC2 calibration constructor at start up.
-#endif
+
     esp_wifi_config_info();
     return result;
 }
@@ -239,3 +311,28 @@ void wifi_apb80m_release(void)
     esp_pm_lock_release(s_wifi_modem_sleep_lock);
 }
 #endif //CONFIG_PM_ENABLE
+
+/* Coordinate ADC power with other modules. This overrides the function from PHY lib. */
+// It seems that it is only required on ESP32, but we still compile it for all chips, in case it is
+// called by PHY unexpectedly.
+void set_xpd_sar(bool en)
+{
+    if (s_wifi_adc_xpd_flag == en) {
+        /* ignore repeated calls to set_xpd_sar when the state is already correct */
+        return;
+    }
+
+    s_wifi_adc_xpd_flag = en;
+    if (en) {
+        adc_power_acquire();
+    } else {
+        adc_power_release();
+    }
+}
+
+#ifndef CONFIG_ESP_WIFI_FTM_ENABLE
+void ieee80211_ftm_attach(void)
+{
+    /* Do not remove, stub to overwrite weak link in Wi-Fi Lib */
+}
+#endif

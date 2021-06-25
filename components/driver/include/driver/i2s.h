@@ -1,16 +1,8 @@
-// Copyright 2015-2020 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #pragma once
 
@@ -20,11 +12,12 @@
 #include "freertos/semphr.h"
 #include "soc/i2s_periph.h"
 #include "soc/rtc_periph.h"
-#include "soc/i2s_caps.h"
+#include "soc/soc_caps.h"
 #include "hal/i2s_hal.h"
 #include "hal/i2s_types.h"
 #include "driver/periph_ctrl.h"
 #include "esp_intr_alloc.h"
+
 #if SOC_I2S_SUPPORTS_ADC_DAC
 #include "driver/adc.h"
 #endif
@@ -81,21 +74,6 @@ esp_err_t i2s_set_pin(i2s_port_t i2s_num, const i2s_pin_config_t *pin);
  */
 esp_err_t i2s_set_pdm_rx_down_sample(i2s_port_t i2s_num, i2s_pdm_dsr_t dsr);
 #endif
-
-/**
- * @brief Set I2S dac mode, I2S built-in DAC is disabled by default
- *
- * @param dac_mode DAC mode configurations - see i2s_dac_mode_t
- *
- * @note Built-in DAC functions are only supported on I2S0 for current ESP32 chip.
- *       If either of the built-in DAC channel are enabled, the other one can not
- *       be used as RTC DAC function at the same time.
- *
- * @return
- *     - ESP_OK               Success
- *     - ESP_ERR_INVALID_ARG  Parameter error
- */
-esp_err_t i2s_set_dac_mode(i2s_dac_mode_t dac_mode);
 
 /**
  * @brief Install and start I2S driver.
@@ -299,6 +277,7 @@ float i2s_get_clk(i2s_port_t i2s_num);
 /**
  * @brief Set built-in ADC mode for I2S DMA, this function will initialize ADC pad,
  *        and set ADC parameters.
+ * @note  In this mode, the ADC maximum sampling rate is 150KHz. Set the sampling rate through ``i2s_config_t``.
  * @param adc_unit    SAR ADC unit index
  * @param adc_channel ADC channel index
  * @return
@@ -330,7 +309,23 @@ esp_err_t i2s_adc_enable(i2s_port_t i2s_num);
  *     - ESP_ERR_INVALID_STATE  Driver state error
  */
 esp_err_t i2s_adc_disable(i2s_port_t i2s_num);
-#endif
+
+/**
+ * @brief Set I2S dac mode, I2S built-in DAC is disabled by default
+ *
+ * @param dac_mode DAC mode configurations - see i2s_dac_mode_t
+ *
+ * @note Built-in DAC functions are only supported on I2S0 for current ESP32 chip.
+ *       If either of the built-in DAC channel are enabled, the other one can not
+ *       be used as RTC DAC function at the same time.
+ *
+ * @return
+ *     - ESP_OK               Success
+ *     - ESP_ERR_INVALID_ARG  Parameter error
+ */
+esp_err_t i2s_set_dac_mode(i2s_dac_mode_t dac_mode);
+#endif //SOC_I2S_SUPPORTS_ADC_DAC
+
 
 #ifdef __cplusplus
 }

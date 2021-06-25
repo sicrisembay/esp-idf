@@ -1,16 +1,8 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #pragma once
 
@@ -20,15 +12,6 @@ extern "C" {
 
 #include "esp_err.h"
 
-
-/**
- * @brief Force power on for SAR ADC.
- * This function should be called for the scenario in which ADC are controlled by digital function like DMA.
- * When the ADC power is always on, RTC FSM can still be functional.
- * This is an internal API for I2S module to call to enable I2S-ADC function.
- * Note that adc_power_off() can still power down ADC.
- */
-void adc_power_always_on(void);
 
 /**
  * @brief For I2S dma to claim the usage of ADC1.
@@ -67,4 +50,3 @@ esp_err_t adc1_lock_release(void);
 #ifdef __cplusplus
 }
 #endif
-

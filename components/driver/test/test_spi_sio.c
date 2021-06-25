@@ -1,4 +1,9 @@
 /*
+ * SPDX-FileCopyrightText: 2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+/*
  Tests for the spi sio mode
 */
 
@@ -12,7 +17,6 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/queue.h"
-#include "freertos/xtensa_api.h"
 #include "unity.h"
 #include "driver/spi_master.h"
 #include "driver/spi_slave.h"
@@ -25,6 +29,8 @@
 
 #include "hal/spi_ll.h"
 
+#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S3)
+#if !DISABLED_FOR_TARGETS(ESP32C3)  //There is only one GPSPI controller, so single-board test is disabled.
 
 /********************************************************************************
  *      Test SIO
@@ -101,8 +107,10 @@ TEST_CASE("local test sio", "[spi]")
     spi_slave_free(TEST_SLAVE_HOST);
     master_free_device_bus(spi);
 }
+#endif //!DISABLED_FOR_TARGETS(ESP32C3)  //There is only one GPSPI controller, so single-board test is disabled.
 
-#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2)
+
+#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2, ESP32C3)
 //These tests are ESP32 only due to lack of runners
 /********************************************************************************
  *      Test SIO Master & Slave
@@ -220,4 +228,6 @@ void test_sio_slave(void)
 }
 
 TEST_CASE_MULTIPLE_DEVICES("sio mode", "[spi][test_env=Example_SPI_Multi_device]", test_sio_master, test_sio_slave);
-#endif
+#endif // !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2, ESP32C3)
+
+#endif // !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S3, ESP32C3)

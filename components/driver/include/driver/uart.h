@@ -1,16 +1,8 @@
-// Copyright 2015-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #pragma once
 
@@ -20,14 +12,13 @@ extern "C" {
 
 #include "esp_err.h"
 #include "esp_intr_alloc.h"
+#include "soc/soc_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "freertos/xtensa_api.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "freertos/ringbuf.h"
 #include "hal/uart_types.h"
-#include "soc/uart_caps.h"
 
 // Valid UART port number
 #define UART_NUM_0             (0) /*!< UART port 0 */
@@ -38,6 +29,9 @@ extern "C" {
 #define UART_NUM_MAX           (SOC_UART_NUM) /*!< UART port max */
 
 #define UART_PIN_NO_CHANGE      (-1)         /*!< Constant for uart_set_pin function which indicates that UART pin should not be changed */
+
+#define UART_FIFO_LEN           SOC_UART_FIFO_LEN       ///< Length of the UART HW FIFO
+#define UART_BITRATE_MAX        SOC_UART_BITRATE_MAX    ///< Maximum configurable bitrate
 
 /**
  * @brief UART interrupt configuration parameters for uart_intr_config function
@@ -224,7 +218,7 @@ esp_err_t uart_get_baudrate(uart_port_t uart_num, uint32_t* baudrate);
  * @brief Set UART line inverse mode
  *
  * @param uart_num  UART port number, the max port number is (UART_NUM_MAX -1).
- * @param inverse_mask Choose the wires that need to be inverted. Using the ORred mask of `uart_signal_inv_t` 
+ * @param inverse_mask Choose the wires that need to be inverted. Using the ORred mask of `uart_signal_inv_t`
  *
  * @return
  *     - ESP_OK   Success
@@ -864,4 +858,3 @@ void uart_set_always_rx_timeout(uart_port_t uart_num, bool always_rx_timeout_en)
 #ifdef __cplusplus
 }
 #endif
-

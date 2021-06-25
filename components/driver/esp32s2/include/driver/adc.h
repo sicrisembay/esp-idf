@@ -1,15 +1,8 @@
-// Copyright 2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2019-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #pragma once
 
@@ -44,29 +37,6 @@ esp_err_t adc_arbiter_config(adc_unit_t adc_unit, adc_arbiter_t *config);
 /*---------------------------------------------------------------
                     Digital controller setting
 ---------------------------------------------------------------*/
-/**
- * @brief ADC digital controller initialization.
- * @return
- *      - ESP_OK Success
- */
-esp_err_t adc_digi_init(void);
-
-/**
- * @brief ADC digital controller deinitialization.
- * @return
- *      - ESP_OK Success
- */
-esp_err_t adc_digi_deinit(void);
-
-/**
- * @brief Setting the digital controller.
- *
- * @param config Pointer to digital controller paramter. Refer to `adc_digi_config_t`.
- *
- * @return
- *      - ESP_OK Success
- */
-esp_err_t adc_digi_controller_config(const adc_digi_config_t *config);
 
 /**
  * @brief Enable digital controller to trigger the measurement.

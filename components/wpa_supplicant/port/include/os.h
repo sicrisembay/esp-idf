@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "esp_err.h"
+#include "supplicant_opt.h"
 
 typedef time_t os_time_t;
 
@@ -33,6 +34,8 @@ struct os_time {
 	os_time_t sec;
 	suseconds_t usec;
 };
+
+#define os_reltime os_time
 
 struct os_tm {
     int sec; /* 0..59 or 60 for leap seconds */
@@ -49,7 +52,7 @@ struct os_tm {
  * Returns: 0 on success, -1 on failure
  */
 int os_get_time(struct os_time *t);
-
+#define os_get_reltime os_get_time
 
 /* Helper macros for handling struct os_time */
 
@@ -57,6 +60,7 @@ int os_get_time(struct os_time *t);
 	((a)->sec < (b)->sec || \
 	 ((a)->sec == (b)->sec && (a)->usec < (b)->usec))
 
+#define os_reltime_before os_time_before
 #define os_time_sub(a, b, res) do { \
 	(res)->sec = (a)->sec - (b)->sec; \
 	(res)->usec = (a)->usec - (b)->usec; \
@@ -65,6 +69,7 @@ int os_get_time(struct os_time *t);
 		(res)->usec += 1000000; \
 	} \
 } while (0)
+#define os_reltime_sub os_time_sub
 
 /**
  * os_mktime - Convert broken-down time into seconds since 1970-01-01
@@ -207,6 +212,10 @@ char * os_readfile(const char *name, size_t *len);
 #ifndef os_zalloc
 #define os_zalloc(s) calloc(1, (s))
 #endif
+#ifndef os_calloc
+#define os_calloc(p, s) calloc((p), (s))
+#endif
+
 #ifndef os_free
 #define os_free(p) free((p))
 #endif
@@ -293,4 +302,34 @@ static inline int os_snprintf_error(size_t size, int res)
 {
         return res < 0 || (unsigned int) res >= size;
 }
+
+static inline void * os_realloc_array(void *ptr, size_t nmemb, size_t size)
+{
+	if (size && nmemb > (~(size_t) 0) / size)
+		return NULL;
+	return os_realloc(ptr, nmemb * size);
+}
+
+#ifdef USE_MBEDTLS_CRYPTO
+void forced_memzero(void *ptr, size_t len);
+#else
+/* Try to prevent most compilers from optimizing out clearing of memory that
+ * becomes unaccessible after this function is called. This is mostly the case
+ * for clearing local stack variables at the end of a function. This is not
+ * exactly perfect, i.e., someone could come up with a compiler that figures out
+ * the pointer is pointing to memset and then end up optimizing the call out, so
+ * try go a bit further by storing the first octet (now zero) to make this even
+ * a bit more difficult to optimize out. Once memset_s() is available, that
+ * could be used here instead. */
+static void * (* const volatile memset_func)(void *, int, size_t) = memset;
+static uint8_t forced_memzero_val;
+
+static inline void forced_memzero(void *ptr, size_t len)
+{
+	memset_func(ptr, 0, len);
+	if (len) {
+		forced_memzero_val = ((uint8_t *) ptr)[0];
+	}
+}
+#endif
 #endif /* OS_H */

@@ -1,16 +1,8 @@
-// Copyright 2016-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2016-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #pragma once
 
 #ifdef __cplusplus
@@ -99,6 +91,20 @@ typedef struct {
     .rx_gpio_num = -1,                             \
 }
 #endif
+
+/**
+ * @brief Parameters for console device: USB CDC
+ *
+ * @note It's an empty structure for now, reserved for future
+ *
+ */
+typedef struct {
+
+} esp_console_dev_usb_cdc_config_t;
+
+#define ESP_CONSOLE_DEV_CDC_CONFIG_DEFAULT() \
+{                                            \
+}
 
 /**
  * @brief initialize console module
@@ -303,6 +309,27 @@ struct esp_console_repl_s {
  *      - ESP_FAIL Parameter error
  */
 esp_err_t esp_console_new_repl_uart(const esp_console_dev_uart_config_t *dev_config, const esp_console_repl_config_t *repl_config, esp_console_repl_t **ret_repl);
+
+/**
+ * @brief Establish a console REPL environment over USB CDC
+ *
+ * @param[in] dev_config USB CDC configuration
+ * @param[in] repl_config REPL configuration
+ * @param[out] ret_repl return REPL handle after initialization succeed, return NULL otherwise
+ *
+ * @note This is a all-in-one function to establish the environment needed for REPL, includes:
+ *       - Initializes linenoise
+ *       - Spawn new thread to run REPL in the background
+ *
+ * @attention This function is meant to be used in the examples to make the code more compact.
+ *            Applications which use console functionality should be based on
+ *            the underlying linenoise and esp_console functions.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_FAIL Parameter error
+ */
+esp_err_t esp_console_new_repl_usb_cdc(const esp_console_dev_usb_cdc_config_t *dev_config, const esp_console_repl_config_t *repl_config, esp_console_repl_t **ret_repl);
 
 /**
  * @brief Start REPL environment
